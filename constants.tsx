@@ -1,5 +1,5 @@
 
-import { BudgetData, ExpenseItem } from './types';
+import { BudgetData } from './types';
 
 export const INITIAL_DATA: BudgetData = {
   income: [
@@ -38,5 +38,17 @@ export const INITIAL_DATA: BudgetData = {
     { id: 'otp-5', title: 'Management Fees', totalAmount: 0, paidAmount: 0, dueDate: '' },
     { id: 'otp-6', title: 'Continental Insurance', totalAmount: 0, paidAmount: 0, dueDate: '' },
     { id: 'otp-7', title: 'Car Service', totalAmount: 0, paidAmount: 0, dueDate: '' },
-  ]
+  ],
+  savings: {
+    openingBalance: 0,
+    additions: [
+      { id: 'sav-add-1', amount: 50000, date: '2026-01-26' }
+    ],
+    withdrawals: []
+  },
+  cash: {
+    openingBalance: 0,
+    income: [],
+    expenses: []
+  }
 };

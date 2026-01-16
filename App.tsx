@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { BudgetData, IncomeSource, ExpenseItem, OneTimePayment } from './types';
+import { BudgetData, IncomeSource, ExpenseItem, OneTimePayment, SavingsEntry, SavingsWithdrawal, CashEntry } from './types';
 import { INITIAL_DATA } from './constants';
 import Layout from './components/Layout';
 import SummaryCard from './components/SummaryCard';
@@ -13,7 +13,14 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [data, setData] = useState<BudgetData>(() => {
     const saved = localStorage.getItem('home_budget_data');
-    return saved ? JSON.parse(saved) : INITIAL_DATA;
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      // Ensure new objects exist for backward compatibility
+      if (!parsed.savings) parsed.savings = INITIAL_DATA.savings;
+      if (!parsed.cash) parsed.cash = INITIAL_DATA.cash;
+      return parsed;
+    }
+    return INITIAL_DATA;
   });
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -32,6 +39,14 @@ const App: React.FC = () => {
     const salaryIncome = data.income.find(i => i.name === 'Salary')?.amount || 0;
     const rentIncome = data.income.find(i => i.name === 'Rent Income')?.amount || 0;
 
+    const totalSavingsAdditions = data.savings.additions.reduce((sum, item) => sum + item.amount, 0);
+    const totalSavingsWithdrawals = data.savings.withdrawals.reduce((sum, item) => sum + item.amount, 0);
+    const savingsBalance = data.savings.openingBalance + totalSavingsAdditions - totalSavingsWithdrawals;
+
+    const totalCashIncome = data.cash.income.reduce((sum, item) => sum + item.amount, 0);
+    const totalCashExpenses = data.cash.expenses.reduce((sum, item) => sum + item.amount, 0);
+    const closingCashBalance = data.cash.openingBalance + totalCashIncome - totalCashExpenses;
+
     return {
       totalIncome,
       totalExpenses,
@@ -43,6 +58,12 @@ const App: React.FC = () => {
       rentIncome,
       salaryRemaining: salaryIncome - salaryExpenses,
       rentRemaining: rentIncome - rentExpenses,
+      savingsBalance,
+      totalSavingsAdditions,
+      totalSavingsWithdrawals,
+      closingCashBalance,
+      totalCashIncome,
+      totalCashExpenses
     };
   }, [data]);
 
@@ -82,6 +103,114 @@ const App: React.FC = () => {
     }));
   };
 
+  // Cash Handlers
+  const handleUpdateCashOpening = (amount: number) => {
+    setData(prev => ({ ...prev, cash: { ...prev.cash, openingBalance: amount } }));
+  };
+
+  const handleAddCashItem = (type: 'income' | 'expenses') => {
+    const newItem: CashEntry = {
+      id: `cash-${type}-${Date.now()}`,
+      amount: 0,
+      date: new Date().toISOString().split('T')[0],
+      description: 'New Item'
+    };
+    setData(prev => ({
+      ...prev,
+      cash: { ...prev.cash, [type]: [...prev.cash[type], newItem] }
+    }));
+  };
+
+  const handleUpdateCashItem = (type: 'income' | 'expenses', id: string, field: keyof CashEntry, value: any) => {
+    setData(prev => ({
+      ...prev,
+      cash: {
+        ...prev.cash,
+        [type]: prev.cash[type].map(item => item.id === id ? { ...item, [field]: value } : item)
+      }
+    }));
+  };
+
+  const handleRemoveCashItem = (type: 'income' | 'expenses', id: string) => {
+    setData(prev => ({
+      ...prev,
+      cash: { ...prev.cash, [type]: prev.cash[type].filter(item => item.id !== id) }
+    }));
+  };
+
+  // Savings Handlers
+  const handleUpdateSavingsOpening = (amount: number) => {
+    setData(prev => ({
+      ...prev,
+      savings: { ...prev.savings, openingBalance: amount }
+    }));
+  };
+
+  const handleAddSavingsAddition = () => {
+    const newEntry: SavingsEntry = {
+      id: `sav-add-${Date.now()}`,
+      amount: 0,
+      date: new Date().toISOString().split('T')[0]
+    };
+    setData(prev => ({
+      ...prev,
+      savings: { ...prev.savings, additions: [...prev.savings.additions, newEntry] }
+    }));
+  };
+
+  const handleUpdateSavingsAddition = (id: string, field: keyof SavingsEntry, value: any) => {
+    setData(prev => ({
+      ...prev,
+      savings: {
+        ...prev.savings,
+        additions: prev.savings.additions.map(a => a.id === id ? { ...a, [field]: value } : a)
+      }
+    }));
+  };
+
+  const handleRemoveSavingsAddition = (id: string) => {
+    setData(prev => ({
+      ...prev,
+      savings: {
+        ...prev.savings,
+        additions: prev.savings.additions.filter(a => a.id !== id)
+      }
+    }));
+  };
+
+  const handleAddSavingsWithdrawal = () => {
+    const newWithdrawal: SavingsWithdrawal = {
+      id: `sav-wd-${Date.now()}`,
+      amount: 0,
+      date: new Date().toISOString().split('T')[0],
+      reason: 'General'
+    };
+    setData(prev => ({
+      ...prev,
+      savings: { ...prev.savings, withdrawals: [...prev.savings.withdrawals, newWithdrawal] }
+    }));
+  };
+
+  const handleUpdateSavingsWithdrawal = (id: string, field: keyof SavingsWithdrawal, value: any) => {
+    setData(prev => ({
+      ...prev,
+      savings: {
+        ...prev.savings,
+        withdrawals: prev.savings.withdrawals.map(w => w.id === id ? { ...w, [field]: value } : w)
+      }
+    }));
+  };
+
+  const handleRemoveSavingsWithdrawal = (id: string) => {
+    setData(prev => ({
+      ...prev,
+      savings: {
+        ...prev.savings,
+        withdrawals: prev.savings.withdrawals.filter(w => w.id !== id)
+      }
+    }));
+  };
+
   const runAIAnalysis = async () => {
     setIsAnalyzing(true);
     const result = await analyzeBudget(data);
@@ -117,8 +246,8 @@ const App: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <SummaryCard title="Total Monthly Income" amount={totals.totalIncome} color="indigo" />
             <SummaryCard title="Monthly Expenses" amount={totals.totalExpenses} color="orange" subtitle={`${((totals.totalExpenses / totals.totalIncome) * 100).toFixed(1)}% of income`} />
-            <SummaryCard title="Monthly Net Balance" amount={totals.balance} color={totals.balance >= 0 ? 'green' : 'red'} />
-            <SummaryCard title="One-Time Obligations" amount={totals.totalOneTime} color="blue" />
+            <SummaryCard title="Cash Balance" amount={totals.closingCashBalance} color="green" />
+            <SummaryCard title="Total Savings" amount={totals.savingsBalance} color="blue" />
           </div>
 
           {aiInsight && (
@@ -450,6 +579,300 @@ const App: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
              <SummaryCard title="Total Projected Outlay" amount={totals.totalOneTime} color="blue" />
              <SummaryCard title="Total Funds Allocated" amount={data.oneTimePayments.reduce((s,i) => s + i.paidAmount, 0)} color="green" />
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'cash' && (
+        <div className="space-y-8 animate-in fade-in duration-300">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Cash In Hand</h2>
+            <div className="bg-emerald-50 border border-emerald-100 rounded-2xl px-6 py-3 flex items-center gap-6 shadow-sm">
+              <div className="flex flex-col">
+                <span className="text-[10px] text-emerald-600 font-bold uppercase tracking-widest">Opening Cash</span>
+                <div className="relative mt-1">
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">Rs.</span>
+                  <input
+                    type="number"
+                    value={data.cash.openingBalance}
+                    onChange={(e) => handleUpdateCashOpening(Number(e.target.value))}
+                    className="pl-6 pr-2 py-1 bg-transparent border-none focus:ring-0 font-black text-lg text-slate-900 w-32 outline-none"
+                  />
+                </div>
+              </div>
+              <div className="w-[1px] h-10 bg-emerald-200"></div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-emerald-800 font-bold uppercase tracking-widest">Closing Balance</span>
+                <span className={`text-xl font-black mt-1 ${totals.closingCashBalance >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                  Rs. {totals.closingCashBalance.toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-12">
+            {/* Cash Income Section */}
+            <div className="space-y-4">
+              <div className="flex justify-between items-center border-b-2 pb-2 border-emerald-200">
+                <h3 className="text-xl font-bold text-emerald-700">Cash Income</h3>
+                <span className="text-sm font-bold text-emerald-500">Total: Rs. {totals.totalCashIncome.toLocaleString()}</span>
+              </div>
+              <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+                <table className="w-full text-left">
+                  <thead className="bg-emerald-500">
+                    <tr>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest">Date</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest">Description</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest w-1/4">Amount (Rs.)</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest text-center w-12">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.cash.income.map(item => (
+                      <tr key={item.id} className="hover:bg-emerald-50/20 transition-colors">
+                        <td className="px-6 py-2">
+                          <input
+                            type="date"
+                            value={item.date}
+                            onChange={(e) => handleUpdateCashItem('income', item.id, 'date', e.target.value)}
+                            className="bg-transparent border-none focus:ring-0 font-bold text-slate-700 text-sm"
+                          />
+                        </td>
+                        <td className="px-6 py-2">
+                          <input
+                            value={item.description}
+                            onChange={(e) => handleUpdateCashItem('income', item.id, 'description', e.target.value)}
+                            className="bg-transparent border-none focus:ring-0 font-bold text-slate-800 text-sm w-full"
+                          />
+                        </td>
+                        <td className="px-6 py-2">
+                          <input
+                            type="number"
+                            value={item.amount}
+                            onChange={(e) => handleUpdateCashItem('income', item.id, 'amount', Number(e.target.value))}
+                            className="bg-transparent border-none focus:ring-0 font-black text-emerald-700 text-base w-full"
+                          />
+                        </td>
+                        <td className="px-6 py-2 text-center">
+                          <button onClick={() => handleRemoveCashItem('income', item.id)} className="text-slate-300 hover:text-red-500 transition-colors">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <button 
+                  onClick={() => handleAddCashItem('income')}
+                  className="w-full py-3 text-xs font-black text-emerald-600 bg-emerald-50/50 hover:bg-emerald-100 transition-all border-t border-emerald-100"
+                >
+                  + ADD CASH INCOME
+                </button>
+              </div>
+            </div>
+
+            {/* Cash Expenses Section */}
+            <div className="space-y-4">
+              <div className="flex justify-between items-center border-b-2 pb-2 border-orange-200">
+                <h3 className="text-xl font-bold text-orange-700">Cash Expenses</h3>
+                <span className="text-sm font-bold text-orange-500">Total: Rs. {totals.totalCashExpenses.toLocaleString()}</span>
+              </div>
+              <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+                <table className="w-full text-left">
+                  <thead className="bg-orange-500">
+                    <tr>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest">Date</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest">Description</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest w-1/4">Amount (Rs.)</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest text-center w-12">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.cash.expenses.map(item => (
+                      <tr key={item.id} className="hover:bg-orange-50/20 transition-colors">
+                        <td className="px-6 py-2">
+                          <input
+                            type="date"
+                            value={item.date}
+                            onChange={(e) => handleUpdateCashItem('expenses', item.id, 'date', e.target.value)}
+                            className="bg-transparent border-none focus:ring-0 font-bold text-slate-700 text-sm"
+                          />
+                        </td>
+                        <td className="px-6 py-2">
+                          <input
+                            value={item.description}
+                            onChange={(e) => handleUpdateCashItem('expenses', item.id, 'description', e.target.value)}
+                            className="bg-transparent border-none focus:ring-0 font-bold text-slate-800 text-sm w-full"
+                          />
+                        </td>
+                        <td className="px-6 py-2">
+                          <input
+                            type="number"
+                            value={item.amount}
+                            onChange={(e) => handleUpdateCashItem('expenses', item.id, 'amount', Number(e.target.value))}
+                            className="bg-transparent border-none focus:ring-0 font-black text-orange-700 text-base w-full"
+                          />
+                        </td>
+                        <td className="px-6 py-2 text-center">
+                          <button onClick={() => handleRemoveCashItem('expenses', item.id)} className="text-slate-300 hover:text-red-500 transition-colors">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <button 
+                  onClick={() => handleAddCashItem('expenses')}
+                  className="w-full py-3 text-xs font-black text-orange-600 bg-orange-50/50 hover:bg-orange-100 transition-all border-t border-orange-100"
+                >
+                  + ADD CASH EXPENSE
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'savings' && (
+        <div className="space-y-8 animate-in fade-in duration-300">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Savings Management</h2>
+            <div className="bg-indigo-50 border border-indigo-100 rounded-2xl px-6 py-3 flex items-center gap-6 shadow-sm">
+              <div className="flex flex-col">
+                <span className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest">Opening Balance</span>
+                <div className="relative mt-1">
+                  <span className="absolute left-0 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">Rs.</span>
+                  <input
+                    type="number"
+                    value={data.savings.openingBalance}
+                    onChange={(e) => handleUpdateSavingsOpening(Number(e.target.value))}
+                    className="pl-6 pr-2 py-1 bg-transparent border-none focus:ring-0 font-black text-lg text-slate-900 w-32 outline-none"
+                  />
+                </div>
+              </div>
+              <div className="w-[1px] h-10 bg-indigo-200"></div>
+              <div className="flex flex-col">
+                <span className="text-[10px] text-indigo-600 font-bold uppercase tracking-widest">Current Balance</span>
+                <span className="text-xl font-black text-indigo-800 mt-1">
+                  Rs. {totals.savingsBalance.toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-12">
+            {/* Additions Section */}
+            <div className="space-y-4">
+              <div className="flex justify-between items-center border-b-2 pb-2 border-indigo-200">
+                <h3 className="text-xl font-bold text-indigo-700">Additions (Deposits)</h3>
+                <span className="text-sm font-bold text-indigo-500">Total: Rs. {totals.totalSavingsAdditions.toLocaleString()}</span>
+              </div>
+              <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+                <table className="w-full text-left">
+                  <thead className="bg-indigo-500">
+                    <tr>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest">Date</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest">Amount (Rs.)</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest text-center w-12">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.savings.additions.map(item => (
+                      <tr key={item.id} className="hover:bg-indigo-50/20 transition-colors">
+                        <td className="px-6 py-2">
+                          <input
+                            type="date"
+                            value={item.date}
+                            onChange={(e) => handleUpdateSavingsAddition(item.id, 'date', e.target.value)}
+                            className="bg-transparent border-none focus:ring-0 font-bold text-slate-700 text-sm"
+                          />
+                        </td>
+                        <td className="px-6 py-2">
+                          <input
+                            type="number"
+                            value={item.amount}
+                            onChange={(e) => handleUpdateSavingsAddition(item.id, 'amount', Number(e.target.value))}
+                            className="bg-transparent border-none focus:ring-0 font-black text-indigo-700 text-base w-full"
+                          />
+                        </td>
+                        <td className="px-6 py-2 text-center">
+                          <button onClick={() => handleRemoveSavingsAddition(item.id)} className="text-slate-300 hover:text-red-500 transition-colors">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <button 
+                  onClick={handleAddSavingsAddition}
+                  className="w-full py-3 text-xs font-black text-indigo-600 bg-indigo-50/50 hover:bg-indigo-100 transition-all border-t border-indigo-100"
+                >
+                  + ADD DEPOSIT
+                </button>
+              </div>
+            </div>
+
+            {/* Withdrawals Section */}
+            <div className="space-y-4">
+              <div className="flex justify-between items-center border-b-2 pb-2 border-orange-200">
+                <h3 className="text-xl font-bold text-orange-700">Withdrawals</h3>
+                <span className="text-sm font-bold text-orange-500">Total: Rs. {totals.totalSavingsWithdrawals.toLocaleString()}</span>
+              </div>
+              <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+                <table className="w-full text-left">
+                  <thead className="bg-orange-500">
+                    <tr>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest">Date</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest">Reason</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest">Amount (Rs.)</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest text-center w-12">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.savings.withdrawals.map(item => (
+                      <tr key={item.id} className="hover:bg-orange-50/20 transition-colors">
+                        <td className="px-6 py-2">
+                          <input
+                            type="date"
+                            value={item.date}
+                            onChange={(e) => handleUpdateSavingsWithdrawal(item.id, 'date', e.target.value)}
+                            className="bg-transparent border-none focus:ring-0 font-bold text-slate-700 text-sm"
+                          />
+                        </td>
+                        <td className="px-6 py-2">
+                          <input
+                            value={item.reason}
+                            onChange={(e) => handleUpdateSavingsWithdrawal(item.id, 'reason', e.target.value)}
+                            className="bg-transparent border-none focus:ring-0 font-bold text-slate-800 text-sm w-full"
+                          />
+                        </td>
+                        <td className="px-6 py-2">
+                          <input
+                            type="number"
+                            value={item.amount}
+                            onChange={(e) => handleUpdateSavingsWithdrawal(item.id, 'amount', Number(e.target.value))}
+                            className="bg-transparent border-none focus:ring-0 font-black text-orange-700 text-base w-full"
+                          />
+                        </td>
+                        <td className="px-6 py-2 text-center">
+                          <button onClick={() => handleRemoveSavingsWithdrawal(item.id)} className="text-slate-300 hover:text-red-500 transition-colors">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <button 
+                  onClick={handleAddSavingsWithdrawal}
+                  className="w-full py-3 text-xs font-black text-orange-600 bg-orange-50/50 hover:bg-orange-100 transition-all border-t border-orange-100"
+                >
+                  + ADD WITHDRAWAL
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

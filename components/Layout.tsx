@@ -13,6 +13,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab }) =>
     { id: 'income', label: 'Income', icon: '💰' },
     { id: 'expenses', label: 'Expenses', icon: '💸' },
     { id: 'onetime', label: 'One-Time', icon: '🗓️' },
+    { id: 'cash', label: 'Cash', icon: '💵' },
+    { id: 'savings', label: 'Savings', icon: '🏦' },
   ];
 
   return (
