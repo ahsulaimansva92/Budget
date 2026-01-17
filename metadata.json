@@ -1,5 +1,7 @@
 {
   "name": "HomeBudget Pro",
   "description": "A comprehensive home budgeting application to track monthly income, categorized expenses, and one-time payments with AI-powered insights.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera"
+  ]
 }

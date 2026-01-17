@@ -1,21 +1,15 @@
 
-import { GoogleGenAI } from "@google/genai";
-import { BudgetData } from "../types";
+import { GoogleGenAI, Type } from "@google/genai";
+import { BudgetData, GroceryCategory } from "../types";
 
 export const analyzeBudget = async (data: BudgetData): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
   
   const prompt = `
-    Analyze the following monthly budget and provide 3-5 concise, actionable financial tips or observations.
+    Analyze the following monthly budget and provide 3-5 concise, actionable financial tips.
     Income: ${JSON.stringify(data.income)}
     Monthly Expenses: ${JSON.stringify(data.expenses)}
     One-time Payments: ${JSON.stringify(data.oneTimePayments)}
-    
-    Focus on:
-    1. Balance between salary-paid and rent-paid expenses.
-    2. Savings percentage.
-    3. Potential overspending in specific categories like food or petrol.
-    
     Format the output as a professional brief with clear bullet points.
   `;
 
@@ -24,9 +18,75 @@ export const analyzeBudget = async (data: BudgetData): Promise<string> => {
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
-    return response.text || "Could not generate insights at this time.";
+    return response.text || "Could not generate insights.";
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
-    return "The AI is currently unavailable to analyze your budget. Please try again later.";
+    return "AI Analysis temporarily unavailable.";
+  }
+};
+
+export const processGroceryBill = async (base64Image: string, categories: GroceryCategory[]): Promise<any> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  
+  const categoryContext = categories.map(c => 
+    `${c.name}: [${c.subCategories.map(s => s.name).join(', ')}]`
+  ).join('\n');
+
+  const prompt = `
+    Analyze this grocery bill image. Extract all items.
+    For each item, determine its category and subcategory based on this list:
+    ${categoryContext}
+    
+    Return a JSON object with:
+    - shopName (string)
+    - date (string, YYYY-MM-DD)
+    - items (array):
+      - description (string)
+      - quantity (number)
+      - unit (string, e.g., kg, g, pkt, unit)
+      - unitCost (number)
+      - totalCost (number)
+      - categoryName (matching one from the list)
+      - subCategoryName (matching one from the list)
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: [
+        { text: prompt },
+        { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] || base64Image } }
+      ],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            shopName: { type: Type.STRING },
+            date: { type: Type.STRING },
+            items: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  description: { type: Type.STRING },
+                  quantity: { type: Type.NUMBER },
+                  unit: { type: Type.STRING },
+                  unitCost: { type: Type.NUMBER },
+                  totalCost: { type: Type.NUMBER },
+                  categoryName: { type: Type.STRING },
+                  subCategoryName: { type: Type.STRING },
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    return JSON.parse(response.text || '{}');
+  } catch (error) {
+    console.error("OCR Processing Error:", error);
+    throw error;
   }
 };

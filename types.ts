@@ -55,10 +55,45 @@ export interface CashData {
   expenses: CashEntry[];
 }
 
+// Grocery Tracker Types
+export interface GrocerySubCategory {
+  id: string;
+  name: string;
+}
+
+export interface GroceryCategory {
+  id: string;
+  name: string;
+  subCategories: GrocerySubCategory[];
+}
+
+export interface GroceryBillItem {
+  id: string;
+  description: string;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  totalCost: number;
+  categoryId: string;
+  subCategoryId: string;
+  rawDescription?: string; // For audit trail
+}
+
+export interface GroceryBill {
+  id: string;
+  date: string;
+  shopName: string;
+  items: GroceryBillItem[];
+  imageUrl?: string;
+  totalAmount: number;
+}
+
 export interface BudgetData {
   income: IncomeSource[];
   expenses: ExpenseItem[];
   oneTimePayments: OneTimePayment[];
   savings: SavingsData;
   cash: CashData;
+  groceryCategories: GroceryCategory[];
+  groceryBills: GroceryBill[];
 }
