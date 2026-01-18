@@ -40,7 +40,6 @@ const App: React.FC = () => {
   }, [data]);
 
   const totals = useMemo(() => {
-    // Explicitly casting all amounts to Number to avoid arithmetic errors
     const totalIncome = data.income.reduce((sum, item) => sum + Number(item.amount), 0);
     const recurringExpenses = data.expenses.reduce((sum, item) => sum + Number(item.amount), 0);
     const totalGrocerySpend = data.groceryBills.reduce((sum, bill) => sum + Number(bill.totalAmount), 0);
@@ -83,7 +82,6 @@ const App: React.FC = () => {
     };
   }, [data]);
 
-  // Grocery Analytics
   const groceryStats = useMemo(() => {
     const stats: Record<string, { totalAmount: number; totalQuantity: number; avgUnitCost: number; itemCount: number }> = {};
     
@@ -115,13 +113,11 @@ const App: React.FC = () => {
   }, [data.groceryBills]);
 
   const totalCategorizedSpend = useMemo(() => {
-    // Only count items that are NOT unassigned for the "Total Categorized" summary
     const validCatTotals = { ...categoryTotals };
     delete validCatTotals['unassigned'];
     return Object.values(validCatTotals).reduce((sum: number, val: number) => sum + Number(val), 0);
   }, [categoryTotals]);
 
-  // Specific Sub-category Items for breakup
   const breakupItems = useMemo(() => {
     if (!showBreakupSubId) return [];
     return data.groceryBills.flatMap(bill => 
@@ -141,7 +137,6 @@ const App: React.FC = () => {
     return '';
   }, [showBreakupSubId, data.groceryCategories]);
 
-  // Handlers for Income, Expenses, One-Time
   const handleUpdateIncome = (id: string, amount: number) => {
     setData(prev => ({
       ...prev,
@@ -174,7 +169,6 @@ const App: React.FC = () => {
     }));
   };
 
-  // Cash Handlers
   const handleUpdateCashOpening = (amount: number) => {
     setData(prev => ({ ...prev, cash: { ...prev.cash, openingBalance: Number(amount) } }));
   };
@@ -209,7 +203,6 @@ const App: React.FC = () => {
     }));
   };
 
-  // Savings Handlers
   const handleUpdateSavingsOpening = (amount: number) => {
     setData(prev => ({
       ...prev,
@@ -276,7 +269,6 @@ const App: React.FC = () => {
     }));
   };
 
-  // Grocery Handlers
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -490,7 +482,6 @@ const App: React.FC = () => {
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">Recurring Expenses</h2>
           </div>
           <div className="grid grid-cols-1 gap-12">
-            {/* Salary Expenses */}
             <div className="space-y-4">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 pb-3 border-indigo-500">
                 <div>
@@ -556,7 +547,6 @@ const App: React.FC = () => {
                 </button>
               </div>
             </div>
-            {/* Rent Expenses */}
             <div className="space-y-4">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 pb-3 border-emerald-500">
                 <div>
@@ -752,6 +742,25 @@ const App: React.FC = () => {
             />
           </div>
 
+          {/* Prominent Unassigned Items Warning Section */}
+          {categoryTotals['unassigned'] > 0 && (
+            <div className="bg-amber-50 border-2 border-amber-200 p-6 rounded-[2rem] shadow-sm flex flex-col md:flex-row items-center justify-between gap-6 animate-pulse-slow">
+              <div className="flex items-center gap-5">
+                <div className="bg-amber-200 text-amber-800 w-14 h-14 rounded-2xl flex items-center justify-center text-3xl">⚠️</div>
+                <div>
+                  <h3 className="text-lg font-black text-amber-900 tracking-tight">Unassigned Items Detected</h3>
+                  <p className="text-sm font-medium text-amber-700">Gemini couldn't automatically map {groceryStats['unassigned']?.itemCount} items (Rs. {categoryTotals['unassigned'].toLocaleString()}). Categorize them now to update your budget.</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowBreakupSubId('unassigned')}
+                className="bg-amber-500 hover:bg-amber-600 text-white px-8 py-3 rounded-xl font-black text-sm shadow-lg shadow-amber-100 transition-all whitespace-nowrap"
+              >
+                Categorize Now
+              </button>
+            </div>
+          )}
+
           {showBreakupSubId && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
                <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
@@ -759,7 +768,7 @@ const App: React.FC = () => {
                     <div>
                       <h3 className="text-2xl font-black text-slate-900 tracking-tight">{selectedSubCategoryName}</h3>
                       <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">
-                        {showBreakupSubId === 'unassigned' ? 'Categorize these items to update your tracker' : 'Detailed Item Breakdown'}
+                        {showBreakupSubId === 'unassigned' ? 'Categorize items to update your tracker' : 'Manage items and re-categorize if needed'}
                       </p>
                     </div>
                     <button onClick={() => setShowBreakupSubId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
@@ -772,7 +781,7 @@ const App: React.FC = () => {
                           <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Shop</th>
                           <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Item Description</th>
                           <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Cost (Rs.)</th>
-                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Action</th>
+                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Reassign Category</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -783,30 +792,32 @@ const App: React.FC = () => {
                             <td className="px-4 py-4 text-sm font-medium text-slate-600 italic">"{item.description}"</td>
                             <td className="px-4 py-4 text-sm font-black text-indigo-700">Rs. {Number(item.totalCost).toLocaleString()}</td>
                             <td className="px-4 py-4">
-                              <select 
-                                className="text-xs font-bold p-2 bg-slate-100 border-none rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none w-full max-w-[200px]"
-                                onChange={(e) => {
-                                  const [catId, subCatId] = e.target.value.split('|');
-                                  handleCategorizeItem(item.billId!, item.id, catId, subCatId);
-                                }}
-                                value={`${item.categoryId}|${item.subCategoryId}`}
-                              >
-                                <option value="unassigned|unassigned">Unassigned</option>
-                                {data.groceryCategories.map(cat => (
-                                  <optgroup key={cat.id} label={cat.name}>
-                                    {cat.subCategories.map(sub => (
-                                      <option key={sub.id} value={`${cat.id}|${sub.id}`}>{sub.name}</option>
-                                    ))}
-                                  </optgroup>
-                                ))}
-                              </select>
+                              <div className="flex items-center gap-2">
+                                <select 
+                                  className={`text-[11px] font-black p-2 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none w-full max-w-[220px] shadow-sm transition-all ${item.subCategoryId === 'unassigned' ? 'bg-amber-100 border-2 border-amber-300' : 'bg-slate-100 border border-slate-200'}`}
+                                  onChange={(e) => {
+                                    const [catId, subCatId] = e.target.value.split('|');
+                                    handleCategorizeItem(item.billId!, item.id, catId, subCatId);
+                                  }}
+                                  value={`${item.categoryId}|${item.subCategoryId}`}
+                                >
+                                  <option value="unassigned|unassigned" disabled={item.subCategoryId !== 'unassigned'}>--- Select Category ---</option>
+                                  {data.groceryCategories.map(cat => (
+                                    <optgroup key={cat.id} label={cat.name}>
+                                      {cat.subCategories.map(sub => (
+                                        <option key={sub.id} value={`${cat.id}|${sub.id}`}>{sub.name}</option>
+                                      ))}
+                                    </optgroup>
+                                  ))}
+                                </select>
+                              </div>
                             </td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot className="bg-indigo-50 font-black text-indigo-900 sticky bottom-0">
                         <tr>
-                          <td colSpan={3} className="px-4 py-4 text-right uppercase text-[10px] tracking-widest">Total Spend</td>
+                          <td colSpan={3} className="px-4 py-4 text-right uppercase text-[10px] tracking-widest">Total Spend in View</td>
                           <td colSpan={2} className="px-4 py-4 text-lg">Rs. {breakupItems.reduce((s, i) => s + Number(i.totalCost), 0).toLocaleString()}</td>
                         </tr>
                       </tfoot>
@@ -860,32 +871,11 @@ const App: React.FC = () => {
             <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-100">
                <div className="flex justify-between items-center mb-6 border-b pb-3">
                   <h3 className="text-lg font-black text-slate-900">Spend by Category</h3>
-                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Click a sub-category to view items</p>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Click a sub-category to manage/reassign its items</p>
                </div>
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                 {/* Unassigned Bucket */}
-                 {categoryTotals['unassigned'] > 0 && (
-                   <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 animate-pulse-slow">
-                      <div className="flex justify-between items-start mb-4">
-                        <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest">⚠️ Unassigned Items</span>
-                        <span className="text-lg font-black text-slate-900">Rs. {Number(categoryTotals['unassigned']).toLocaleString()}</span>
-                      </div>
-                      <div className="space-y-2">
-                         <div 
-                          onClick={() => setShowBreakupSubId('unassigned')}
-                          className="text-xs flex flex-col gap-1 border-t border-amber-200 pt-2 mt-1 cursor-pointer hover:bg-white hover:rounded-lg p-2 transition-all group"
-                         >
-                            <div className="flex justify-between font-bold text-amber-800">
-                              <span>Action Required</span>
-                              <span>{groceryStats['unassigned']?.itemCount} items</span>
-                            </div>
-                            <p className="text-[10px] text-amber-600 italic">Click to categorize these items</p>
-                         </div>
-                      </div>
-                   </div>
-                 )}
                  {data.groceryCategories.map(cat => (
-                   <div key={cat.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                   <div key={cat.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 group hover:border-indigo-200 hover:shadow-lg transition-all">
                       <div className="flex justify-between items-start mb-4">
                         <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">{cat.name}</span>
                         <span className="text-lg font-black text-slate-900">Rs. {Number(categoryTotals[cat.id] || 0).toLocaleString()}</span>
@@ -898,11 +888,14 @@ const App: React.FC = () => {
                             <div 
                               key={sub.id} 
                               onClick={() => setShowBreakupSubId(sub.id)}
-                              className="text-xs flex flex-col gap-1 border-t pt-2 mt-1 cursor-pointer hover:bg-white hover:rounded-lg p-1 transition-all group"
+                              className="text-xs flex flex-col gap-1 border-t pt-2 mt-1 cursor-pointer hover:bg-white hover:rounded-lg p-2 transition-all group/sub"
                             >
-                              <div className="flex justify-between font-bold text-slate-700 group-hover:text-indigo-600">
+                              <div className="flex justify-between font-bold text-slate-700 group-hover/sub:text-indigo-600">
                                 <span>{sub.name}</span>
-                                <span>Rs. {Number(stats.totalAmount).toLocaleString()}</span>
+                                <div className="flex items-center gap-2">
+                                  <span>Rs. {Number(stats.totalAmount).toLocaleString()}</span>
+                                  <span className="text-[9px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded opacity-0 group-hover/sub:opacity-100 transition-opacity uppercase font-black">Manage</span>
+                                </div>
                               </div>
                               <div className="flex justify-between text-[10px] text-slate-400 italic">
                                 <span>Qty: {Number(stats.totalQuantity).toFixed(1)}</span>
@@ -1054,7 +1047,6 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="grid grid-cols-1 gap-12">
-            {/* Cash Income */}
             <div className="space-y-4">
               <h3 className="text-xl font-bold text-emerald-700 border-b-2 pb-2 border-emerald-200">Cash Income</h3>
               <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -1089,7 +1081,6 @@ const App: React.FC = () => {
                 <button onClick={() => handleAddCashItem('income')} className="w-full py-3 text-xs font-black text-emerald-600 bg-emerald-50/50 hover:bg-emerald-100">+ Add Cash Income</button>
               </div>
             </div>
-            {/* Cash Expenses */}
             <div className="space-y-4">
               <h3 className="text-xl font-bold text-orange-700 border-b-2 pb-2 border-orange-200">Cash Expenses</h3>
               <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -1155,7 +1146,6 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="grid grid-cols-1 gap-12">
-            {/* Savings Additions */}
             <div className="space-y-4">
               <h3 className="text-xl font-bold text-indigo-700 border-b-2 pb-2 border-indigo-200">Additions (Deposits)</h3>
               <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -1186,7 +1176,6 @@ const App: React.FC = () => {
                 <button onClick={handleAddSavingsAddition} className="w-full py-3 text-xs font-black text-indigo-600 bg-indigo-50/50 hover:bg-indigo-100">+ Add Deposit</button>
               </div>
             </div>
-            {/* Savings Withdrawals */}
             <div className="space-y-4">
               <h3 className="text-xl font-bold text-orange-700 border-b-2 pb-2 border-orange-200">Withdrawals</h3>
               <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
