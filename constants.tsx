@@ -155,6 +155,19 @@ const INITIAL_GROCERY_CATEGORIES: GroceryCategory[] = [
       { id: 'g-sub-12-7', name: 'Shavin Cream' },
       { id: 'g-sub-12-8', name: 'Menstrual Pads' }
     ]
+  },
+  {
+    id: 'g-cat-13',
+    name: 'Snacks & Biscuits',
+    subCategories: [
+      { id: 'g-sub-13-1', name: 'Biscuits' },
+      { id: 'g-sub-13-2', name: 'Cookies' },
+      { id: 'g-sub-13-3', name: 'Crackers' },
+      { id: 'g-sub-13-4', name: 'Chips & Crisps' },
+      { id: 'g-sub-13-5', name: 'Chocolates' },
+      { id: 'g-sub-13-6', name: 'Traditional Sweets' },
+      { id: 'g-sub-13-7', name: 'Mixed Nuts' }
+    ]
   }
 ];
 

@@ -40,26 +40,27 @@ const App: React.FC = () => {
   }, [data]);
 
   const totals = useMemo(() => {
-    const totalIncome = data.income.reduce((sum, item) => sum + item.amount, 0);
-    const recurringExpenses = data.expenses.reduce((sum, item) => sum + item.amount, 0);
-    const totalGrocerySpend = data.groceryBills.reduce((sum, bill) => sum + bill.totalAmount, 0);
+    // Explicitly casting all amounts to Number to avoid arithmetic errors
+    const totalIncome = data.income.reduce((sum, item) => sum + Number(item.amount), 0);
+    const recurringExpenses = data.expenses.reduce((sum, item) => sum + Number(item.amount), 0);
+    const totalGrocerySpend = data.groceryBills.reduce((sum, bill) => sum + Number(bill.totalAmount), 0);
     const totalExpenses = recurringExpenses + totalGrocerySpend;
     
-    const salaryIncome = data.income.find(i => i.name === 'Salary')?.amount || 0;
-    const rentIncome = data.income.find(i => i.name === 'Rent Income')?.amount || 0;
+    const salaryIncome = Number(data.income.find(i => i.name === 'Salary')?.amount || 0);
+    const rentIncome = Number(data.income.find(i => i.name === 'Rent Income')?.amount || 0);
 
-    const salaryExpenses = data.expenses.filter(e => e.sourceType === 'Salary').reduce((sum, e) => sum + e.amount, 0);
-    const rentExpenses = data.expenses.filter(e => e.sourceType === 'Rent').reduce((sum, e) => sum + e.amount, 0);
+    const salaryExpenses = data.expenses.filter(e => e.sourceType === 'Salary').reduce((sum, e) => sum + Number(e.amount), 0);
+    const rentExpenses = data.expenses.filter(e => e.sourceType === 'Rent').reduce((sum, e) => sum + Number(e.amount), 0);
 
-    const totalOneTime = data.oneTimePayments.reduce((sum, item) => sum + item.totalAmount, 0);
+    const totalOneTime = data.oneTimePayments.reduce((sum, item) => sum + Number(item.totalAmount), 0);
 
-    const totalSavingsAdditions = data.savings.additions.reduce((sum, item) => sum + item.amount, 0);
-    const totalSavingsWithdrawals = data.savings.withdrawals.reduce((sum, item) => sum + item.amount, 0);
-    const savingsBalance = data.savings.openingBalance + totalSavingsAdditions - totalSavingsWithdrawals;
+    const totalSavingsAdditions = data.savings.additions.reduce((sum, item) => sum + Number(item.amount), 0);
+    const totalSavingsWithdrawals = data.savings.withdrawals.reduce((sum, item) => sum + Number(item.amount), 0);
+    const savingsBalance = Number(data.savings.openingBalance) + totalSavingsAdditions - totalSavingsWithdrawals;
 
-    const totalCashIncome = data.cash.income.reduce((sum, item) => sum + item.amount, 0);
-    const totalCashExpenses = data.cash.expenses.reduce((sum, item) => sum + item.amount, 0);
-    const closingCashBalance = data.cash.openingBalance + totalCashIncome - totalCashExpenses;
+    const totalCashIncome = data.cash.income.reduce((sum, item) => sum + Number(item.amount), 0);
+    const totalCashExpenses = data.cash.expenses.reduce((sum, item) => sum + Number(item.amount), 0);
+    const closingCashBalance = Number(data.cash.openingBalance) + totalCashIncome - totalCashExpenses;
 
     return {
       totalIncome,
@@ -88,13 +89,14 @@ const App: React.FC = () => {
     
     data.groceryBills.forEach(bill => {
       bill.items.forEach(item => {
-        if (!stats[item.subCategoryId]) {
-          stats[item.subCategoryId] = { totalAmount: 0, totalQuantity: 0, avgUnitCost: 0, itemCount: 0 };
+        const subId = item.subCategoryId || 'unassigned';
+        if (!stats[subId]) {
+          stats[subId] = { totalAmount: 0, totalQuantity: 0, avgUnitCost: 0, itemCount: 0 };
         }
-        stats[item.subCategoryId].totalAmount += item.totalCost;
-        stats[item.subCategoryId].totalQuantity += item.quantity;
-        stats[item.subCategoryId].itemCount += 1;
-        stats[item.subCategoryId].avgUnitCost = stats[item.subCategoryId].totalAmount / (stats[item.subCategoryId].totalQuantity || 1);
+        stats[subId].totalAmount += Number(item.totalCost);
+        stats[subId].totalQuantity += Number(item.quantity);
+        stats[subId].itemCount += 1;
+        stats[subId].avgUnitCost = stats[subId].totalAmount / (stats[subId].totalQuantity || 1);
       });
     });
 
@@ -105,37 +107,33 @@ const App: React.FC = () => {
     const catTotals: Record<string, number> = {};
     data.groceryBills.forEach(bill => {
       bill.items.forEach(item => {
-        catTotals[item.categoryId] = (catTotals[item.categoryId] || 0) + item.totalCost;
+        const catId = item.categoryId || 'unassigned';
+        catTotals[catId] = (catTotals[catId] || 0) + Number(item.totalCost);
       });
     });
     return catTotals;
   }, [data.groceryBills]);
 
   const totalCategorizedSpend = useMemo(() => {
-    return Object.values(categoryTotals).reduce((sum: number, val: number) => sum + val, 0);
+    // Only count items that are NOT unassigned for the "Total Categorized" summary
+    const validCatTotals = { ...categoryTotals };
+    delete validCatTotals['unassigned'];
+    return Object.values(validCatTotals).reduce((sum: number, val: number) => sum + Number(val), 0);
   }, [categoryTotals]);
-
-  // Fixed the error: "The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type"
-  // by calculating the Global Item Average in a useMemo with explicit types instead of doing complex arithmetic in JSX.
-  const globalItemAverage = useMemo<number>(() => {
-    const statsArray = Object.values(groceryStats);
-    if (statsArray.length === 0) return 0;
-    const totalAvgSum = statsArray.reduce((sum: number, s: any) => sum + (s.avgUnitCost || 0), 0);
-    return totalAvgSum / statsArray.length;
-  }, [groceryStats]);
 
   // Specific Sub-category Items for breakup
   const breakupItems = useMemo(() => {
     if (!showBreakupSubId) return [];
     return data.groceryBills.flatMap(bill => 
       bill.items
-        .filter(item => item.subCategoryId === showBreakupSubId)
-        .map(item => ({ ...item, billDate: bill.date, billShop: bill.shopName }))
+        .filter(item => (item.subCategoryId || 'unassigned') === showBreakupSubId)
+        .map(item => ({ ...item, billId: bill.id, billDate: bill.date, billShop: bill.shopName }))
     );
   }, [showBreakupSubId, data.groceryBills]);
 
   const selectedSubCategoryName = useMemo(() => {
     if (!showBreakupSubId) return '';
+    if (showBreakupSubId === 'unassigned') return 'Unassigned Items';
     for (const cat of data.groceryCategories) {
       const sub = cat.subCategories.find(s => s.id === showBreakupSubId);
       if (sub) return sub.name;
@@ -147,14 +145,14 @@ const App: React.FC = () => {
   const handleUpdateIncome = (id: string, amount: number) => {
     setData(prev => ({
       ...prev,
-      income: prev.income.map(i => i.id === id ? { ...i, amount } : i)
+      income: prev.income.map(i => i.id === id ? { ...i, amount: Number(amount) } : i)
     }));
   };
 
   const handleUpdateExpense = (id: string, field: keyof ExpenseItem, value: any) => {
     setData(prev => ({
       ...prev,
-      expenses: prev.expenses.map(e => e.id === id ? { ...e, [field]: value } : e)
+      expenses: prev.expenses.map(e => e.id === id ? { ...e, [field]: (field === 'amount' ? Number(value) : value) } : e)
     }));
   };
 
@@ -172,13 +170,13 @@ const App: React.FC = () => {
   const handleUpdateOneTime = (id: string, field: keyof OneTimePayment, value: any) => {
     setData(prev => ({
       ...prev,
-      oneTimePayments: prev.oneTimePayments.map(p => p.id === id ? { ...p, [field]: value } : p)
+      oneTimePayments: prev.oneTimePayments.map(p => p.id === id ? { ...p, [field]: (['totalAmount', 'paidAmount'].includes(field) ? Number(value) : value) } : p)
     }));
   };
 
   // Cash Handlers
   const handleUpdateCashOpening = (amount: number) => {
-    setData(prev => ({ ...prev, cash: { ...prev.cash, openingBalance: amount } }));
+    setData(prev => ({ ...prev, cash: { ...prev.cash, openingBalance: Number(amount) } }));
   };
 
   const handleAddCashItem = (type: 'income' | 'expenses') => {
@@ -199,7 +197,7 @@ const App: React.FC = () => {
       ...prev,
       cash: {
         ...prev.cash,
-        [type]: prev.cash[type].map(item => item.id === id ? { ...item, [field]: value } : item)
+        [type]: prev.cash[type].map(item => item.id === id ? { ...item, [field]: (field === 'amount' ? Number(value) : value) } : item)
       }
     }));
   };
@@ -215,7 +213,7 @@ const App: React.FC = () => {
   const handleUpdateSavingsOpening = (amount: number) => {
     setData(prev => ({
       ...prev,
-      savings: { ...prev.savings, openingBalance: amount }
+      savings: { ...prev.savings, openingBalance: Number(amount) }
     }));
   };
 
@@ -236,7 +234,7 @@ const App: React.FC = () => {
       ...prev,
       savings: {
         ...prev.savings,
-        additions: prev.savings.additions.map(a => a.id === id ? { ...a, [field]: value } : a)
+        additions: prev.savings.additions.map(a => a.id === id ? { ...a, [field]: (field === 'amount' ? Number(value) : value) } : a)
       }
     }));
   };
@@ -266,7 +264,7 @@ const App: React.FC = () => {
       ...prev,
       savings: {
         ...prev.savings,
-        withdrawals: prev.savings.withdrawals.map(w => w.id === id ? { ...w, [field]: value } : w)
+        withdrawals: prev.savings.withdrawals.map(w => w.id === id ? { ...w, [field]: (field === 'amount' ? Number(value) : value) } : w)
       }
     }));
   };
@@ -295,7 +293,7 @@ const App: React.FC = () => {
           date: result.date || new Date().toISOString().split('T')[0],
           shopName: result.shopName || 'Unknown Shop',
           imageUrl: base64,
-          totalAmount: result.items.reduce((s: number, i: any) => s + i.totalCost, 0),
+          totalAmount: result.items.reduce((s: number, i: any) => s + Number(i.totalCost), 0),
           items: result.items.map((i: any) => {
             const cat = data.groceryCategories.find(c => c.name === i.categoryName);
             const sub = cat?.subCategories.find(s => s.name === i.subCategoryName);
@@ -303,12 +301,12 @@ const App: React.FC = () => {
               id: `item-${Math.random()}`,
               description: i.description,
               rawDescription: i.description,
-              quantity: i.quantity,
+              quantity: Number(i.quantity),
               unit: i.unit,
-              unitCost: i.unitCost,
-              totalCost: i.totalCost,
-              categoryId: cat?.id || data.groceryCategories[0].id,
-              subCategoryId: sub?.id || (cat?.subCategories[0].id || 'misc')
+              unitCost: Number(i.unitCost),
+              totalCost: Number(i.totalCost),
+              categoryId: cat?.id || 'unassigned',
+              subCategoryId: sub?.id || 'unassigned'
             };
           })
         };
@@ -321,6 +319,22 @@ const App: React.FC = () => {
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleCategorizeItem = (billId: string, itemId: string, catId: string, subCatId: string) => {
+    setData(prev => ({
+      ...prev,
+      groceryBills: prev.groceryBills.map(bill => {
+        if (bill.id !== billId) return bill;
+        return {
+          ...bill,
+          items: bill.items.map(item => {
+            if (item.id !== itemId) return item;
+            return { ...item, categoryId: catId, subCategoryId: subCatId };
+          })
+        };
+      })
+    }));
   };
 
   const moveCategory = (index: number, direction: 'up' | 'down') => {
@@ -645,7 +659,7 @@ const App: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {data.oneTimePayments.map(item => {
-                  const progress = item.totalAmount > 0 ? Math.min(100, (item.paidAmount / item.totalAmount) * 100) : 0;
+                  const progress = Number(item.totalAmount) > 0 ? Math.min(100, (Number(item.paidAmount) / Number(item.totalAmount)) * 100) : 0;
                   return (
                     <tr key={item.id} className="hover:bg-blue-50/20 transition-all group">
                       <td className="px-6 py-4">
@@ -728,7 +742,7 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <SummaryCard title="Total Bills Value" amount={totals.totalGrocerySpend} color="blue" />
             <SummaryCard 
               title="Total Categorized" 
@@ -736,20 +750,17 @@ const App: React.FC = () => {
               color={totals.totalGrocerySpend === totalCategorizedSpend ? "indigo" : "red"} 
               subtitle={totals.totalGrocerySpend === totalCategorizedSpend ? "Verification Successful ✅" : `Mismatch: Rs. ${(totals.totalGrocerySpend - totalCategorizedSpend).toLocaleString()} ❌`} 
             />
-            <SummaryCard 
-              title="Global Item Average" 
-              amount={globalItemAverage} 
-              color="green" 
-            />
           </div>
 
           {showBreakupSubId && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
-               <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
+               <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
                   <div className="p-8 border-b flex justify-between items-center bg-slate-50">
                     <div>
                       <h3 className="text-2xl font-black text-slate-900 tracking-tight">{selectedSubCategoryName}</h3>
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Detailed Item Breakdown</p>
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">
+                        {showBreakupSubId === 'unassigned' ? 'Categorize these items to update your tracker' : 'Detailed Item Breakdown'}
+                      </p>
                     </div>
                     <button onClick={() => setShowBreakupSubId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
                   </div>
@@ -760,8 +771,8 @@ const App: React.FC = () => {
                           <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Date</th>
                           <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Shop</th>
                           <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Item Description</th>
-                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Qty</th>
                           <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Cost (Rs.)</th>
+                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -770,15 +781,33 @@ const App: React.FC = () => {
                             <td className="px-4 py-4 text-xs font-bold text-slate-400 whitespace-nowrap">{item.billDate}</td>
                             <td className="px-4 py-4 text-sm font-black text-slate-700 whitespace-nowrap">{item.billShop}</td>
                             <td className="px-4 py-4 text-sm font-medium text-slate-600 italic">"{item.description}"</td>
-                            <td className="px-4 py-4 text-sm font-bold text-slate-500">{item.quantity} {item.unit}</td>
-                            <td className="px-4 py-4 text-sm font-black text-indigo-700">Rs. {item.totalCost.toLocaleString()}</td>
+                            <td className="px-4 py-4 text-sm font-black text-indigo-700">Rs. {Number(item.totalCost).toLocaleString()}</td>
+                            <td className="px-4 py-4">
+                              <select 
+                                className="text-xs font-bold p-2 bg-slate-100 border-none rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none w-full max-w-[200px]"
+                                onChange={(e) => {
+                                  const [catId, subCatId] = e.target.value.split('|');
+                                  handleCategorizeItem(item.billId!, item.id, catId, subCatId);
+                                }}
+                                value={`${item.categoryId}|${item.subCategoryId}`}
+                              >
+                                <option value="unassigned|unassigned">Unassigned</option>
+                                {data.groceryCategories.map(cat => (
+                                  <optgroup key={cat.id} label={cat.name}>
+                                    {cat.subCategories.map(sub => (
+                                      <option key={sub.id} value={`${cat.id}|${sub.id}`}>{sub.name}</option>
+                                    ))}
+                                  </optgroup>
+                                ))}
+                              </select>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot className="bg-indigo-50 font-black text-indigo-900 sticky bottom-0">
                         <tr>
-                          <td colSpan={4} className="px-4 py-4 text-right uppercase text-[10px] tracking-widest">Total Spend</td>
-                          <td className="px-4 py-4 text-lg">Rs. {breakupItems.reduce((s, i) => s + i.totalCost, 0).toLocaleString()}</td>
+                          <td colSpan={3} className="px-4 py-4 text-right uppercase text-[10px] tracking-widest">Total Spend</td>
+                          <td colSpan={2} className="px-4 py-4 text-lg">Rs. {breakupItems.reduce((s, i) => s + Number(i.totalCost), 0).toLocaleString()}</td>
                         </tr>
                       </tfoot>
                     </table>
@@ -815,7 +844,7 @@ const App: React.FC = () => {
                               <tr key={item.id}>
                                 <td className="px-3 py-2 border-b font-medium">{item.rawDescription}</td>
                                 <td className="px-3 py-2 border-b">{item.quantity} {item.unit}</td>
-                                <td className="px-3 py-2 border-b font-bold">Rs. {item.totalCost}</td>
+                                <td className="px-3 py-2 border-b font-bold">Rs. {Number(item.totalCost)}</td>
                               </tr>
                             ))}
                           </tbody>
@@ -834,11 +863,32 @@ const App: React.FC = () => {
                   <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Click a sub-category to view items</p>
                </div>
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                 {/* Unassigned Bucket */}
+                 {categoryTotals['unassigned'] > 0 && (
+                   <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 animate-pulse-slow">
+                      <div className="flex justify-between items-start mb-4">
+                        <span className="text-[10px] font-black text-amber-600 uppercase tracking-widest">⚠️ Unassigned Items</span>
+                        <span className="text-lg font-black text-slate-900">Rs. {Number(categoryTotals['unassigned']).toLocaleString()}</span>
+                      </div>
+                      <div className="space-y-2">
+                         <div 
+                          onClick={() => setShowBreakupSubId('unassigned')}
+                          className="text-xs flex flex-col gap-1 border-t border-amber-200 pt-2 mt-1 cursor-pointer hover:bg-white hover:rounded-lg p-2 transition-all group"
+                         >
+                            <div className="flex justify-between font-bold text-amber-800">
+                              <span>Action Required</span>
+                              <span>{groceryStats['unassigned']?.itemCount} items</span>
+                            </div>
+                            <p className="text-[10px] text-amber-600 italic">Click to categorize these items</p>
+                         </div>
+                      </div>
+                   </div>
+                 )}
                  {data.groceryCategories.map(cat => (
                    <div key={cat.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
                       <div className="flex justify-between items-start mb-4">
                         <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">{cat.name}</span>
-                        <span className="text-lg font-black text-slate-900">Rs. {(categoryTotals[cat.id] || 0).toLocaleString()}</span>
+                        <span className="text-lg font-black text-slate-900">Rs. {Number(categoryTotals[cat.id] || 0).toLocaleString()}</span>
                       </div>
                       <div className="space-y-2">
                         {cat.subCategories.map(sub => {
@@ -852,11 +902,11 @@ const App: React.FC = () => {
                             >
                               <div className="flex justify-between font-bold text-slate-700 group-hover:text-indigo-600">
                                 <span>{sub.name}</span>
-                                <span>Rs. {stats.totalAmount.toLocaleString()}</span>
+                                <span>Rs. {Number(stats.totalAmount).toLocaleString()}</span>
                               </div>
                               <div className="flex justify-between text-[10px] text-slate-400 italic">
-                                <span>Qty: {stats.totalQuantity.toFixed(1)}</span>
-                                <span>Avg: Rs. {stats.avgUnitCost.toFixed(2)}</span>
+                                <span>Qty: {Number(stats.totalQuantity).toFixed(1)}</span>
+                                <span>Avg: Rs. {Number(stats.avgUnitCost).toFixed(2)}</span>
                               </div>
                             </div>
                           );
@@ -961,7 +1011,7 @@ const App: React.FC = () => {
                      <div className="p-4 flex justify-between items-center">
                         <div>
                           <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest">Total Spent</p>
-                          <p className="text-lg font-black text-indigo-700">Rs. {bill.totalAmount.toLocaleString()}</p>
+                          <p className="text-lg font-black text-indigo-700">Rs. {Number(bill.totalAmount).toLocaleString()}</p>
                         </div>
                         <button 
                           onClick={() => setShowAuditBillId(bill.id)}
@@ -1124,7 +1174,7 @@ const App: React.FC = () => {
                           <input type="date" value={item.date} onChange={(e) => handleUpdateSavingsAddition(item.id, 'date', e.target.value)} className="bg-transparent border-none focus:ring-0 font-bold text-slate-700 text-sm" />
                         </td>
                         <td className="px-6 py-2">
-                          <input type="number" value={item.amount} onChange={(e) => handleUpdateSavingsAddition(item.id, 'amount', Number(e.target.value))} className="bg-transparent border-none focus:ring-0 font-black text-indigo-700 text-base" />
+                          <input type="number" value={item.amount} onChange={(e) => handleUpdateSavingsAddition(item.id, 'amount', Number(item.amount))} className="bg-transparent border-none focus:ring-0 font-black text-indigo-700 text-base" />
                         </td>
                         <td className="px-6 py-2 text-center">
                           <button onClick={() => handleRemoveSavingsAddition(item.id)} className="text-slate-300 hover:text-red-500">✕</button>
@@ -1159,7 +1209,7 @@ const App: React.FC = () => {
                           <input value={item.reason} onChange={(e) => handleUpdateSavingsWithdrawal(item.id, 'reason', e.target.value)} className="bg-transparent border-none focus:ring-0 font-bold text-slate-800 text-sm w-full" />
                         </td>
                         <td className="px-6 py-2">
-                          <input type="number" value={item.amount} onChange={(e) => handleUpdateSavingsWithdrawal(item.id, 'amount', Number(e.target.value))} className="bg-transparent border-none focus:ring-0 font-black text-orange-700 text-base" />
+                          <input type="number" value={item.amount} onChange={(e) => handleUpdateSavingsWithdrawal(item.id, 'amount', Number(item.amount))} className="bg-transparent border-none focus:ring-0 font-black text-orange-700 text-base" />
                         </td>
                         <td className="px-6 py-2 text-center">
                           <button onClick={() => handleRemoveSavingsWithdrawal(item.id)} className="text-slate-300 hover:text-red-500">✕</button>
