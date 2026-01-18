@@ -33,7 +33,6 @@ const App: React.FC = () => {
   const [isOcrLoading, setIsOcrLoading] = useState(false);
   const [showAuditBillId, setShowAuditBillId] = useState<string | null>(null);
   const [showBreakupSubId, setShowBreakupSubId] = useState<string | null>(null);
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -194,7 +193,6 @@ const App: React.FC = () => {
         };
       })
     }));
-    setEditingItemId(null);
   };
 
   // Cash Handlers
@@ -377,6 +375,27 @@ const App: React.FC = () => {
     { name: 'Expenses', value: totals.totalExpenses, fill: '#4f46e5' },
     { name: 'Surplus', value: Math.max(0, totals.balance), fill: '#16a34a' },
   ];
+
+  // Helper component for direct sub-category reassignment
+  const ReassignSelector: React.FC<{ item: any; onCategorize: (billId: string, itemId: string, catId: string, subCatId: string) => void; categories: GroceryCategory[] }> = ({ item, onCategorize, categories }) => (
+    <select 
+      className="text-[11px] font-black p-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none w-full min-w-[160px] shadow-sm transition-all"
+      onChange={(e) => {
+        const [catId, subCatId] = e.target.value.split('|');
+        onCategorize(item.billId!, item.id, catId, subCatId);
+      }}
+      value={`${item.categoryId}|${item.subCategoryId}`}
+    >
+      <option value="unassigned|unassigned" disabled={item.subCategoryId !== 'unassigned'}>--- Reassign Category ---</option>
+      {categories.map(cat => (
+        <optgroup key={cat.id} label={cat.name}>
+          {cat.subCategories.map(sub => (
+            <option key={sub.id} value={`${cat.id}|${sub.id}`}>{sub.name}</option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
 
   return (
     <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
@@ -759,7 +778,7 @@ const App: React.FC = () => {
             />
           </div>
 
-          {/* Pending Categorization Section for Unassigned Items */}
+          {/* Separate Place: Pending Categorization Section for Unassigned Items */}
           {unassignedItems.length > 0 && (
             <div className="bg-amber-50 border-2 border-amber-200 p-6 rounded-[2rem] shadow-sm animate-in zoom-in-95">
               <div className="flex items-center gap-4 mb-6 border-b border-amber-200 pb-4">
@@ -778,23 +797,7 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex items-center gap-4 w-full md:w-auto">
                       <div className="font-black text-indigo-700 whitespace-nowrap">Rs. {item.totalCost.toLocaleString()}</div>
-                      <select 
-                        className="text-[11px] font-black p-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none flex-1 md:flex-none md:w-48"
-                        onChange={(e) => {
-                          const [catId, subCatId] = e.target.value.split('|');
-                          handleCategorizeItem(item.billId!, item.id, catId, subCatId);
-                        }}
-                        value="unassigned|unassigned"
-                      >
-                        <option value="unassigned|unassigned">--- Assign Category ---</option>
-                        {data.groceryCategories.map(cat => (
-                          <optgroup key={cat.id} label={cat.name}>
-                            {cat.subCategories.map(sub => (
-                              <option key={sub.id} value={`${cat.id}|${sub.id}`}>{sub.name}</option>
-                            ))}
-                          </optgroup>
-                        ))}
-                      </select>
+                      <ReassignSelector item={item} onCategorize={handleCategorizeItem} categories={data.groceryCategories} />
                     </div>
                   </div>
                 ))}
@@ -810,7 +813,7 @@ const App: React.FC = () => {
                       <h3 className="text-2xl font-black text-slate-900 tracking-tight">{selectedSubCategoryName}</h3>
                       <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Detailed Item Breakdown & Management</p>
                     </div>
-                    <button onClick={() => { setShowBreakupSubId(null); setEditingItemId(null); }} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
+                    <button onClick={() => setShowBreakupSubId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
                   </div>
                   <div className="flex-1 overflow-auto p-8">
                     <table className="w-full text-left border-collapse">
@@ -820,7 +823,7 @@ const App: React.FC = () => {
                           <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Shop</th>
                           <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Item Description</th>
                           <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Cost (Rs.)</th>
-                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Actions</th>
+                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Move To Category</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -831,40 +834,14 @@ const App: React.FC = () => {
                             <td className="px-4 py-4 text-sm font-medium text-slate-600 italic">"{item.description}"</td>
                             <td className="px-4 py-4 text-sm font-black text-indigo-700">Rs. {Number(item.totalCost).toLocaleString()}</td>
                             <td className="px-4 py-4">
-                              {editingItemId === item.id ? (
-                                <select 
-                                  className="text-[11px] font-black p-2 bg-indigo-50 border-2 border-indigo-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none w-full min-w-[150px]"
-                                  onChange={(e) => {
-                                    const [catId, subCatId] = e.target.value.split('|');
-                                    handleCategorizeItem(item.billId!, item.id, catId, subCatId);
-                                  }}
-                                  autoFocus
-                                  onBlur={() => setEditingItemId(null)}
-                                  value={`${item.categoryId}|${item.subCategoryId}`}
-                                >
-                                  {data.groceryCategories.map(cat => (
-                                    <optgroup key={cat.id} label={cat.name}>
-                                      {cat.subCategories.map(sub => (
-                                        <option key={sub.id} value={`${cat.id}|${sub.id}`}>{sub.name}</option>
-                                      ))}
-                                    </optgroup>
-                                  ))}
-                                </select>
-                              ) : (
-                                <button 
-                                  onClick={() => setEditingItemId(item.id)}
-                                  className="text-[10px] font-black uppercase tracking-widest bg-slate-100 hover:bg-indigo-600 hover:text-white text-slate-600 px-3 py-1.5 rounded-lg transition-all"
-                                >
-                                  🔄 Reassign
-                                </button>
-                              )}
+                              <ReassignSelector item={item} onCategorize={handleCategorizeItem} categories={data.groceryCategories} />
                             </td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot className="bg-indigo-50 font-black text-indigo-900 sticky bottom-0">
                         <tr>
-                          <td colSpan={3} className="px-4 py-4 text-right uppercase text-[10px] tracking-widest">Total Spend</td>
+                          <td colSpan={3} className="px-4 py-4 text-right uppercase text-[10px] tracking-widest">Total Spend in Category</td>
                           <td colSpan={2} className="px-4 py-4 text-lg">Rs. {breakupItems.reduce((s, i) => s + Number(i.totalCost), 0).toLocaleString()}</td>
                         </tr>
                       </tfoot>
