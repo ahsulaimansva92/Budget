@@ -32,6 +32,7 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isOcrLoading, setIsOcrLoading] = useState(false);
   const [showAuditBillId, setShowAuditBillId] = useState<string | null>(null);
+  const [showBreakupSubId, setShowBreakupSubId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -111,9 +112,36 @@ const App: React.FC = () => {
   }, [data.groceryBills]);
 
   const totalCategorizedSpend = useMemo(() => {
-    // Fixed: Explicitly typed reduce parameters to fix "unknown + unknown" error
     return Object.values(categoryTotals).reduce((sum: number, val: number) => sum + val, 0);
   }, [categoryTotals]);
+
+  // Fixed the error: "The left-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type"
+  // by calculating the Global Item Average in a useMemo with explicit types instead of doing complex arithmetic in JSX.
+  const globalItemAverage = useMemo<number>(() => {
+    const statsArray = Object.values(groceryStats);
+    if (statsArray.length === 0) return 0;
+    const totalAvgSum = statsArray.reduce((sum: number, s: any) => sum + (s.avgUnitCost || 0), 0);
+    return totalAvgSum / statsArray.length;
+  }, [groceryStats]);
+
+  // Specific Sub-category Items for breakup
+  const breakupItems = useMemo(() => {
+    if (!showBreakupSubId) return [];
+    return data.groceryBills.flatMap(bill => 
+      bill.items
+        .filter(item => item.subCategoryId === showBreakupSubId)
+        .map(item => ({ ...item, billDate: bill.date, billShop: bill.shopName }))
+    );
+  }, [showBreakupSubId, data.groceryBills]);
+
+  const selectedSubCategoryName = useMemo(() => {
+    if (!showBreakupSubId) return '';
+    for (const cat of data.groceryCategories) {
+      const sub = cat.subCategories.find(s => s.id === showBreakupSubId);
+      if (sub) return sub.name;
+    }
+    return '';
+  }, [showBreakupSubId, data.groceryCategories]);
 
   // Handlers for Income, Expenses, One-Time
   const handleUpdateIncome = (id: string, amount: number) => {
@@ -674,7 +702,7 @@ const App: React.FC = () => {
       )}
 
       {activeTab === 'groceries' && (
-        <div className="space-y-10 animate-in fade-in duration-300">
+        <div className="space-y-10 animate-in fade-in duration-300 pb-10">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">Grocery Tracker</h2>
             <div className="flex gap-3">
@@ -689,7 +717,7 @@ const App: React.FC = () => {
                <button 
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isOcrLoading}
-                className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-100 transition-all hover:scale-105"
+                className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-100 transition-all hover:scale-105 active:scale-95"
                >
                  {isOcrLoading ? (
                    <><span className="animate-spin text-xl">🌀</span> Scanning Bill...</>
@@ -702,14 +730,62 @@ const App: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <SummaryCard title="Total Bills Value" amount={totals.totalGrocerySpend} color="blue" />
-            <SummaryCard title="Total Categorized" amount={totalCategorizedSpend} color="indigo" subtitle={totals.totalGrocerySpend === totalCategorizedSpend ? "Verification Successful ✅" : "Balance Mismatch ❌"} />
-            {/* Fixed: Explicitly typed reduce parameters to fix build error on unknown types */}
             <SummaryCard 
-              title="Avg Unit Cost (Overall)" 
-              amount={Object.values(groceryStats).reduce((sum: number, s: any) => sum + (s.avgUnitCost || 0), 0) / (Object.keys(groceryStats).length || 1)} 
+              title="Total Categorized" 
+              amount={totalCategorizedSpend} 
+              color={totals.totalGrocerySpend === totalCategorizedSpend ? "indigo" : "red"} 
+              subtitle={totals.totalGrocerySpend === totalCategorizedSpend ? "Verification Successful ✅" : `Mismatch: Rs. ${(totals.totalGrocerySpend - totalCategorizedSpend).toLocaleString()} ❌`} 
+            />
+            <SummaryCard 
+              title="Global Item Average" 
+              amount={globalItemAverage} 
               color="green" 
             />
           </div>
+
+          {showBreakupSubId && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
+               <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
+                  <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+                    <div>
+                      <h3 className="text-2xl font-black text-slate-900 tracking-tight">{selectedSubCategoryName}</h3>
+                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Detailed Item Breakdown</p>
+                    </div>
+                    <button onClick={() => setShowBreakupSubId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
+                  </div>
+                  <div className="flex-1 overflow-auto p-8">
+                    <table className="w-full text-left border-collapse">
+                      <thead className="bg-slate-100 sticky top-0">
+                        <tr>
+                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Date</th>
+                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Shop</th>
+                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Item Description</th>
+                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Qty</th>
+                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Cost (Rs.)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {breakupItems.map(item => (
+                          <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-4 py-4 text-xs font-bold text-slate-400 whitespace-nowrap">{item.billDate}</td>
+                            <td className="px-4 py-4 text-sm font-black text-slate-700 whitespace-nowrap">{item.billShop}</td>
+                            <td className="px-4 py-4 text-sm font-medium text-slate-600 italic">"{item.description}"</td>
+                            <td className="px-4 py-4 text-sm font-bold text-slate-500">{item.quantity} {item.unit}</td>
+                            <td className="px-4 py-4 text-sm font-black text-indigo-700">Rs. {item.totalCost.toLocaleString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-indigo-50 font-black text-indigo-900 sticky bottom-0">
+                        <tr>
+                          <td colSpan={4} className="px-4 py-4 text-right uppercase text-[10px] tracking-widest">Total Spend</td>
+                          <td className="px-4 py-4 text-lg">Rs. {breakupItems.reduce((s, i) => s + i.totalCost, 0).toLocaleString()}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+               </div>
+            </div>
+          )}
 
           {showAuditBillId && (
             <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -753,7 +829,10 @@ const App: React.FC = () => {
 
           <div className="grid grid-cols-1 gap-8">
             <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-100">
-               <h3 className="text-lg font-black text-slate-900 mb-6 border-b pb-3">Spend by Category</h3>
+               <div className="flex justify-between items-center mb-6 border-b pb-3">
+                  <h3 className="text-lg font-black text-slate-900">Spend by Category</h3>
+                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Click a sub-category to view items</p>
+               </div>
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                  {data.groceryCategories.map(cat => (
                    <div key={cat.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
@@ -766,14 +845,18 @@ const App: React.FC = () => {
                           const stats = groceryStats[sub.id];
                           if (!stats) return null;
                           return (
-                            <div key={sub.id} className="text-xs flex flex-col gap-1 border-t pt-2 mt-1">
-                              <div className="flex justify-between font-bold text-slate-700">
+                            <div 
+                              key={sub.id} 
+                              onClick={() => setShowBreakupSubId(sub.id)}
+                              className="text-xs flex flex-col gap-1 border-t pt-2 mt-1 cursor-pointer hover:bg-white hover:rounded-lg p-1 transition-all group"
+                            >
+                              <div className="flex justify-between font-bold text-slate-700 group-hover:text-indigo-600">
                                 <span>{sub.name}</span>
                                 <span>Rs. {stats.totalAmount.toLocaleString()}</span>
                               </div>
                               <div className="flex justify-between text-[10px] text-slate-400 italic">
-                                <span>Qty: {stats.totalQuantity} units</span>
-                                <span>Avg Cost: Rs. {stats.avgUnitCost.toFixed(2)}</span>
+                                <span>Qty: {stats.totalQuantity.toFixed(1)}</span>
+                                <span>Avg: Rs. {stats.avgUnitCost.toFixed(2)}</span>
                               </div>
                             </div>
                           );
