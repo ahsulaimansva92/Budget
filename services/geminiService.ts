@@ -1,9 +1,8 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { BudgetData, GroceryCategory } from "../types";
+import { BudgetData, GroceryCategory, CategoryOverride } from "../types";
 
 export const analyzeBudget = async (data: BudgetData): Promise<string> => {
-  // Use recommended initialization with named parameters and direct process.env.API_KEY access
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
@@ -19,7 +18,6 @@ export const analyzeBudget = async (data: BudgetData): Promise<string> => {
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
-    // Use .text property to access generated content (not a method call)
     return response.text || "Could not generate insights.";
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
@@ -27,18 +25,30 @@ export const analyzeBudget = async (data: BudgetData): Promise<string> => {
   }
 };
 
-export const processGroceryBill = async (base64Image: string, categories: GroceryCategory[]): Promise<any> => {
-  // Use recommended initialization
+export const processGroceryBill = async (
+  base64Image: string, 
+  categories: GroceryCategory[], 
+  overrides: Record<string, CategoryOverride> = {}
+): Promise<any> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const categoryContext = categories.map(c => 
     `${c.name}: [${c.subCategories.map(s => s.name).join(', ')}]`
   ).join('\n');
 
+  // Stringify overrides for the prompt
+  const overrideContext = Object.entries(overrides).length > 0 
+    ? `USER PREFERENCES (Follow these strictly if you see these items again):\n${Object.entries(overrides).map(([desc, ov]) => `- "${desc}" should be ${ov.categoryName} -> ${ov.subCategoryName}`).join('\n')}`
+    : "";
+
   const prompt = `
     Analyze this grocery bill image. Extract all items.
     For each item, determine its category and subcategory based on this list:
     ${categoryContext}
+    
+    ${overrideContext}
+    
+    CRITICAL: If an item is similar to one in the USER PREFERENCES, use the specified category/subcategory.
     
     Return a JSON object with:
     - shopName (string)
@@ -56,7 +66,6 @@ export const processGroceryBill = async (base64Image: string, categories: Grocer
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      // Correctly structure multimodal content as an object with parts
       contents: {
         parts: [
           { text: prompt },
@@ -90,7 +99,6 @@ export const processGroceryBill = async (base64Image: string, categories: Grocer
       }
     });
 
-    // Use .text property to extract response
     return JSON.parse(response.text || '{}');
   } catch (error) {
     console.error("OCR Processing Error:", error);

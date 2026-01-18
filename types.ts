@@ -88,6 +88,11 @@ export interface GroceryBill {
   totalAmount: number;
 }
 
+export interface CategoryOverride {
+  categoryName: string;
+  subCategoryName: string;
+}
+
 export interface BudgetData {
   income: IncomeSource[];
   expenses: ExpenseItem[];
@@ -96,4 +101,5 @@ export interface BudgetData {
   cash: CashData;
   groceryCategories: GroceryCategory[];
   groceryBills: GroceryBill[];
+  mappingOverrides?: Record<string, CategoryOverride>; // Learning mechanism
 }

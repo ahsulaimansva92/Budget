@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   BudgetData, IncomeSource, ExpenseItem, OneTimePayment, SavingsEntry, SavingsWithdrawal, 
-  CashEntry, GroceryCategory, GrocerySubCategory, GroceryBill, GroceryBillItem 
+  CashEntry, GroceryCategory, GrocerySubCategory, GroceryBill, GroceryBillItem, CategoryOverride 
 } from './types';
 import { INITIAL_DATA } from './constants';
 import Layout from './components/Layout';
@@ -18,14 +18,14 @@ const App: React.FC = () => {
     const saved = localStorage.getItem('home_budget_data');
     if (saved) {
       const parsed = JSON.parse(saved);
-      // Ensure all keys exist for backward compatibility
       if (!parsed.savings) parsed.savings = INITIAL_DATA.savings;
       if (!parsed.cash) parsed.cash = INITIAL_DATA.cash;
       if (!parsed.groceryCategories) parsed.groceryCategories = INITIAL_DATA.groceryCategories;
       if (!parsed.groceryBills) parsed.groceryBills = INITIAL_DATA.groceryBills;
+      if (!parsed.mappingOverrides) parsed.mappingOverrides = {};
       return parsed;
     }
-    return INITIAL_DATA;
+    return { ...INITIAL_DATA, mappingOverrides: {} };
   });
 
   const [aiInsight, setAiInsight] = useState<string | null>(null);
@@ -82,7 +82,6 @@ const App: React.FC = () => {
     };
   }, [data]);
 
-  // Grocery Analytics
   const groceryStats = useMemo(() => {
     const stats: Record<string, { totalAmount: number; totalQuantity: number; avgUnitCost: number; itemCount: number }> = {};
     
@@ -127,7 +126,6 @@ const App: React.FC = () => {
     );
   }, [data.groceryBills]);
 
-  // Specific Sub-category Items for breakup
   const breakupItems = useMemo(() => {
     if (!showBreakupSubId) return [];
     return data.groceryBills.flatMap(bill => 
@@ -146,7 +144,6 @@ const App: React.FC = () => {
     return '';
   }, [showBreakupSubId, data.groceryCategories]);
 
-  // Handlers for Income, Expenses, One-Time
   const handleUpdateIncome = (id: string, amount: number) => {
     setData(prev => ({
       ...prev,
@@ -180,22 +177,36 @@ const App: React.FC = () => {
   };
 
   const handleCategorizeItem = (billId: string, itemId: string, catId: string, subCatId: string) => {
-    setData(prev => ({
-      ...prev,
-      groceryBills: prev.groceryBills.map(bill => {
-        if (bill.id !== billId) return bill;
-        return {
-          ...bill,
-          items: bill.items.map(item => {
-            if (item.id !== itemId) return item;
-            return { ...item, categoryId: catId, subCategoryId: subCatId };
-          })
-        };
-      })
-    }));
+    const cat = data.groceryCategories.find(c => c.id === catId);
+    const sub = cat?.subCategories.find(s => s.id === subCatId);
+    
+    const bill = data.groceryBills.find(b => b.id === billId);
+    const item = bill?.items.find(i => i.id === itemId);
+    const rawDesc = item?.rawDescription || item?.description;
+
+    setData(prev => {
+      const newOverrides = { ...prev.mappingOverrides };
+      if (rawDesc && cat && sub) {
+        newOverrides[rawDesc] = { categoryName: cat.name, subCategoryName: sub.name };
+      }
+
+      return {
+        ...prev,
+        mappingOverrides: newOverrides,
+        groceryBills: prev.groceryBills.map(bill => {
+          if (bill.id !== billId) return bill;
+          return {
+            ...bill,
+            items: bill.items.map(item => {
+              if (item.id !== itemId) return item;
+              return { ...item, categoryId: catId, subCategoryId: subCatId };
+            })
+          };
+        })
+      };
+    });
   };
 
-  // Cash Handlers
   const handleUpdateCashOpening = (amount: number) => {
     setData(prev => ({ ...prev, cash: { ...prev.cash, openingBalance: Number(amount) } }));
   };
@@ -230,7 +241,6 @@ const App: React.FC = () => {
     }));
   };
 
-  // Savings Handlers
   const handleUpdateSavingsOpening = (amount: number) => {
     setData(prev => ({
       ...prev,
@@ -297,7 +307,6 @@ const App: React.FC = () => {
     }));
   };
 
-  // Grocery Handlers
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -307,7 +316,7 @@ const App: React.FC = () => {
     reader.onload = async (event) => {
       const base64 = event.target?.result as string;
       try {
-        const result = await processGroceryBill(base64, data.groceryCategories);
+        const result = await processGroceryBill(base64, data.groceryCategories, data.mappingOverrides);
         
         const newBill: GroceryBill = {
           id: `bill-${Date.now()}`,
@@ -376,7 +385,6 @@ const App: React.FC = () => {
     { name: 'Surplus', value: Math.max(0, totals.balance), fill: '#16a34a' },
   ];
 
-  // Helper component for direct sub-category reassignment
   const ReassignSelector: React.FC<{ item: any; onCategorize: (billId: string, itemId: string, catId: string, subCatId: string) => void; categories: GroceryCategory[] }> = ({ item, onCategorize, categories }) => (
     <select 
       className="text-[11px] font-black p-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none w-full min-w-[160px] shadow-sm transition-all"
@@ -386,7 +394,7 @@ const App: React.FC = () => {
       }}
       value={`${item.categoryId}|${item.subCategoryId}`}
     >
-      <option value="unassigned|unassigned" disabled={item.subCategoryId !== 'unassigned'}>--- Reassign Category ---</option>
+      <option value="unassigned|unassigned" disabled={item.subCategoryId !== 'unassigned'}>--- Select Category ---</option>
       {categories.map(cat => (
         <optgroup key={cat.id} label={cat.name}>
           {cat.subCategories.map(sub => (
@@ -516,7 +524,6 @@ const App: React.FC = () => {
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">Recurring Expenses</h2>
           </div>
           <div className="grid grid-cols-1 gap-12">
-            {/* Salary Expenses */}
             <div className="space-y-4">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 pb-3 border-indigo-500">
                 <div>
@@ -582,7 +589,6 @@ const App: React.FC = () => {
                 </button>
               </div>
             </div>
-            {/* Rent Expenses */}
             <div className="space-y-4">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 pb-3 border-emerald-500">
                 <div>
@@ -778,7 +784,7 @@ const App: React.FC = () => {
             />
           </div>
 
-          {/* Separate Place: Pending Categorization Section for Unassigned Items */}
+          {/* Pending Categorization Section for Unassigned Items */}
           {unassignedItems.length > 0 && (
             <div className="bg-amber-50 border-2 border-amber-200 p-6 rounded-[2rem] shadow-sm animate-in zoom-in-95">
               <div className="flex items-center gap-4 mb-6 border-b border-amber-200 pb-4">
@@ -1068,7 +1074,6 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="grid grid-cols-1 gap-12">
-            {/* Cash Income */}
             <div className="space-y-4">
               <h3 className="text-xl font-bold text-emerald-700 border-b-2 pb-2 border-emerald-200">Cash Income</h3>
               <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -1103,7 +1108,6 @@ const App: React.FC = () => {
                 <button onClick={() => handleAddCashItem('income')} className="w-full py-3 text-xs font-black text-emerald-600 bg-emerald-50/50 hover:bg-emerald-100">+ Add Cash Income</button>
               </div>
             </div>
-            {/* Cash Expenses */}
             <div className="space-y-4">
               <h3 className="text-xl font-bold text-orange-700 border-b-2 pb-2 border-orange-200">Cash Expenses</h3>
               <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -1169,7 +1173,6 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="grid grid-cols-1 gap-12">
-            {/* Savings Additions */}
             <div className="space-y-4">
               <h3 className="text-xl font-bold text-indigo-700 border-b-2 pb-2 border-indigo-200">Additions (Deposits)</h3>
               <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
@@ -1200,7 +1203,6 @@ const App: React.FC = () => {
                 <button onClick={handleAddSavingsAddition} className="w-full py-3 text-xs font-black text-indigo-600 bg-indigo-50/50 hover:bg-indigo-100">+ Add Deposit</button>
               </div>
             </div>
-            {/* Savings Withdrawals */}
             <div className="space-y-4">
               <h3 className="text-xl font-bold text-orange-700 border-b-2 pb-2 border-orange-200">Withdrawals</h3>
               <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
