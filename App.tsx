@@ -110,6 +110,11 @@ const App: React.FC = () => {
     return catTotals;
   }, [data.groceryBills]);
 
+  const totalCategorizedSpend = useMemo(() => {
+    // Fixed: Explicitly typed reduce parameters to fix "unknown + unknown" error
+    return Object.values(categoryTotals).reduce((sum: number, val: number) => sum + val, 0);
+  }, [categoryTotals]);
+
   // Handlers for Income, Expenses, One-Time
   const handleUpdateIncome = (id: string, amount: number) => {
     setData(prev => ({
@@ -693,6 +698,17 @@ const App: React.FC = () => {
                  )}
                </button>
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <SummaryCard title="Total Bills Value" amount={totals.totalGrocerySpend} color="blue" />
+            <SummaryCard title="Total Categorized" amount={totalCategorizedSpend} color="indigo" subtitle={totals.totalGrocerySpend === totalCategorizedSpend ? "Verification Successful ✅" : "Balance Mismatch ❌"} />
+            {/* Fixed: Explicitly typed reduce parameters to fix build error on unknown types */}
+            <SummaryCard 
+              title="Avg Unit Cost (Overall)" 
+              amount={Object.values(groceryStats).reduce((sum: number, s: any) => sum + (s.avgUnitCost || 0), 0) / (Object.keys(groceryStats).length || 1)} 
+              color="green" 
+            />
           </div>
 
           {showAuditBillId && (

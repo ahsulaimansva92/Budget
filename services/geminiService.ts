@@ -3,7 +3,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { BudgetData, GroceryCategory } from "../types";
 
 export const analyzeBudget = async (data: BudgetData): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  // Use recommended initialization with named parameters and direct process.env.API_KEY access
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
     Analyze the following monthly budget and provide 3-5 concise, actionable financial tips.
@@ -18,6 +19,7 @@ export const analyzeBudget = async (data: BudgetData): Promise<string> => {
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
+    // Use .text property to access generated content (not a method call)
     return response.text || "Could not generate insights.";
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
@@ -26,7 +28,8 @@ export const analyzeBudget = async (data: BudgetData): Promise<string> => {
 };
 
 export const processGroceryBill = async (base64Image: string, categories: GroceryCategory[]): Promise<any> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+  // Use recommended initialization
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const categoryContext = categories.map(c => 
     `${c.name}: [${c.subCategories.map(s => s.name).join(', ')}]`
@@ -53,10 +56,13 @@ export const processGroceryBill = async (base64Image: string, categories: Grocer
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: [
-        { text: prompt },
-        { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] || base64Image } }
-      ],
+      // Correctly structure multimodal content as an object with parts
+      contents: {
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] || base64Image } }
+        ]
+      },
       config: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -84,6 +90,7 @@ export const processGroceryBill = async (base64Image: string, categories: Grocer
       }
     });
 
+    // Use .text property to extract response
     return JSON.parse(response.text || '{}');
   } catch (error) {
     console.error("OCR Processing Error:", error);
