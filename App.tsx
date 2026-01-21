@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   BudgetData, IncomeSource, ExpenseItem, OneTimePayment, SavingsEntry, SavingsWithdrawal, 
@@ -218,7 +217,7 @@ const App: React.FC = () => {
     const closingCashBalance = Number(data.cash.openingBalance) + totalCashIncome - totalCashExpenses;
 
     const totalLoanDebt = data.loans.reduce((acc, account) => {
-      const balance = account.transactions.reduce((s, t) => {
+      const balance = Number(account.openingBalance || 0) + account.transactions.reduce((s, t) => {
         return t.type === 'taken' ? s + Number(t.amount) : s - Number(t.amount);
       }, 0);
       return acc + balance;
@@ -303,7 +302,6 @@ const App: React.FC = () => {
     return '';
   }, [showBreakupSubId, data.groceryCategories]);
 
-  // Income & Expense handlers
   const handleUpdateIncome = (id: string, field: keyof IncomeSource, value: any) => {
     setData(prev => {
       const updatedIncome = prev.income.map(i => i.id === id ? { ...i, [field]: value } : i);
@@ -366,7 +364,6 @@ const App: React.FC = () => {
     });
   };
 
-  // Cash Handlers
   const handleUpdateCashOpening = (amount: number) => {
     setData(prev => ({ ...prev, cash: { ...prev.cash, openingBalance: Number(amount) } }));
   };
@@ -409,7 +406,6 @@ const App: React.FC = () => {
     });
   };
 
-  // Savings Handlers
   const handleUpdateSavingsOpening = (amount: number) => {
     setData(prev => ({ ...prev, savings: { ...prev.savings, openingBalance: Number(amount) } }));
   };
@@ -446,7 +442,6 @@ const App: React.FC = () => {
     setData(prev => ({ ...prev, savings: { ...prev.savings, withdrawals: prev.savings.withdrawals.filter(w => w.id !== id) } }));
   };
 
-  // OCR Handlers
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -489,7 +484,6 @@ const App: React.FC = () => {
     reader.readAsDataURL(file);
   };
 
-  // LOAN HANDLERS
   const handleLoanFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -508,7 +502,7 @@ const App: React.FC = () => {
             let acc = updatedLoans.find(l => l.name.toLowerCase() === accName.toLowerCase());
             
             if (!acc) {
-              acc = { id: `loan-${Date.now()}-${Math.random()}`, name: accName, transactions: [] };
+              acc = { id: `loan-${Date.now()}-${Math.random()}`, name: accName, openingBalance: 0, transactions: [] };
               updatedLoans.push(acc);
             }
 
@@ -517,7 +511,7 @@ const App: React.FC = () => {
               date: tx.date || new Date().toISOString().split('T')[0],
               description: tx.description || 'Extracted Payment',
               amount: Number(tx.amount) || 0,
-              type: 'taken', // Default as requested
+              type: 'taken',
               imageUrl: base64
             };
             
@@ -547,6 +541,13 @@ const App: React.FC = () => {
     }));
   };
 
+  const handleUpdateLoanOpeningBalance = (accId: string, amount: number) => {
+    setData(prev => ({
+      ...prev,
+      loans: prev.loans.map(acc => acc.id === accId ? { ...acc, openingBalance: Number(amount) } : acc)
+    }));
+  };
+
   const handleDeleteLoanTransaction = (accId: string, txId: string) => {
     if (confirm("Delete this transaction?")) {
       setData(prev => ({
@@ -564,7 +565,7 @@ const App: React.FC = () => {
     if (name) {
       setData(prev => ({
         ...prev,
-        loans: [...prev.loans, { id: `loan-${Date.now()}`, name, transactions: [] }]
+        loans: [...prev.loans, { id: `loan-${Date.now()}`, name, openingBalance: 0, transactions: [] }]
       }));
     }
   };
@@ -618,9 +619,11 @@ const App: React.FC = () => {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <SummaryCard title="Total Income" amount={totals.totalIncome} color="indigo" />
+            <SummaryCard title="Planned Expenses" amount={totals.recurringExpenses} color="orange" />
             <SummaryCard title="Monthly Surplus" amount={totals.balance} color={totals.balance >= 0 ? 'green' : 'red'} />
+            <SummaryCard title="Total Savings" amount={totals.savingsBalance} color="indigo" />
             <SummaryCard title="Cash Balance" amount={totals.cashBalance} color="blue" />
             <SummaryCard title="Loan Liabilities" amount={totals.totalLoanDebt} color="red" />
           </div>
@@ -802,7 +805,6 @@ const App: React.FC = () => {
         <div className="space-y-10 animate-in fade-in duration-300 pb-10">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">Grocery Tracker</h2>
-            {/* Global Capture Bill button available on all subtabs for convenience */}
             <div className="flex gap-3">
               <input 
                 type="file" 
@@ -1053,7 +1055,6 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {/* Grocery-specific Modals */}
           {showBreakupSubId && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
                <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
@@ -1186,7 +1187,7 @@ const App: React.FC = () => {
             <div className="lg:col-span-1 space-y-4">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest px-2">Loan Portfolios</h3>
               {data.loans.map(account => {
-                const balance = account.transactions.reduce((s, t) => t.type === 'taken' ? s + Number(t.amount) : s - Number(t.amount), 0);
+                const balance = Number(account.openingBalance || 0) + account.transactions.reduce((s, t) => t.type === 'taken' ? s + Number(t.amount) : s - Number(t.amount), 0);
                 return (
                   <div 
                     key={account.id} 
@@ -1210,11 +1211,6 @@ const App: React.FC = () => {
                   </div>
                 );
               })}
-              {data.loans.length === 0 && (
-                <div className="p-8 text-center bg-white rounded-3xl border border-dashed border-slate-200 text-slate-400 text-xs font-bold uppercase tracking-widest">
-                  No accounts yet
-                </div>
-              )}
             </div>
 
             <div className="lg:col-span-2">
@@ -1226,6 +1222,18 @@ const App: React.FC = () => {
                         {data.loans.find(a => a.id === selectedLoanAccountId)?.name}
                       </h3>
                       <p className="text-xs font-black text-slate-400 uppercase tracking-widest mt-1">Transaction History & Verification</p>
+                    </div>
+                    <div className="text-right">
+                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Manual Opening Balance</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">Rs.</span>
+                        <input 
+                          type="number" 
+                          value={data.loans.find(a => a.id === selectedLoanAccountId)?.openingBalance || 0}
+                          onChange={(e) => handleUpdateLoanOpeningBalance(selectedLoanAccountId, Number(e.target.value))}
+                          className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-indigo-100 outline-none w-40"
+                        />
+                      </div>
                     </div>
                   </div>
                   <div className="p-0">
@@ -1287,11 +1295,6 @@ const App: React.FC = () => {
                         ))}
                       </tbody>
                     </table>
-                    {data.loans.find(a => a.id === selectedLoanAccountId)?.transactions.length === 0 && (
-                      <div className="py-20 text-center">
-                        <p className="text-slate-400 font-black uppercase tracking-widest text-xs">No transactions in this account</p>
-                      </div>
-                    )}
                   </div>
                 </div>
               ) : (
@@ -1514,7 +1517,6 @@ const App: React.FC = () => {
           </div>
         </div>
       )}
-
     </Layout>
   );
 };

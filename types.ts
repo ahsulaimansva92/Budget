@@ -73,6 +73,7 @@ export interface LoanTransaction {
 export interface LoanAccount {
   id: string;
   name: string;
+  openingBalance: number;
   transactions: LoanTransaction[];
 }
 
