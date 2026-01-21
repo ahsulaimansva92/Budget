@@ -3,6 +3,7 @@ export interface IncomeSource {
   id: string;
   name: string;
   amount: number;
+  isCashHandled?: boolean;
 }
 
 export type ExpenseSourceType = 'Salary' | 'Rent';
@@ -13,6 +14,7 @@ export interface ExpenseItem {
   amount: number;
   category: string;
   sourceType: ExpenseSourceType;
+  isCashHandled?: boolean;
 }
 
 export interface OneTimePayment {
@@ -47,12 +49,31 @@ export interface CashEntry {
   date: string;
   description: string;
   amount: number;
+  isSynced?: boolean;
 }
 
 export interface CashData {
   openingBalance: number;
   income: CashEntry[];
   expenses: CashEntry[];
+}
+
+// Loan Tracking Types
+export type LoanTransactionType = 'taken' | 'repayment';
+
+export interface LoanTransaction {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  type: LoanTransactionType;
+  imageUrl?: string;
+}
+
+export interface LoanAccount {
+  id: string;
+  name: string;
+  transactions: LoanTransaction[];
 }
 
 // Grocery Tracker Types
@@ -76,7 +97,7 @@ export interface GroceryBillItem {
   totalCost: number;
   categoryId: string;
   subCategoryId: string;
-  rawDescription?: string; // For audit trail
+  rawDescription?: string;
 }
 
 export interface GroceryBill {
@@ -101,5 +122,6 @@ export interface BudgetData {
   cash: CashData;
   groceryCategories: GroceryCategory[];
   groceryBills: GroceryBill[];
-  mappingOverrides?: Record<string, CategoryOverride>; // Learning mechanism
+  loans: LoanAccount[];
+  mappingOverrides?: Record<string, CategoryOverride>;
 }

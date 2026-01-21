@@ -10,6 +10,7 @@ export const analyzeBudget = async (data: BudgetData): Promise<string> => {
     Income: ${JSON.stringify(data.income)}
     Monthly Expenses: ${JSON.stringify(data.expenses)}
     One-time Payments: ${JSON.stringify(data.oneTimePayments)}
+    Loans: ${JSON.stringify(data.loans)}
     Format the output as a professional brief with clear bullet points.
   `;
 
@@ -36,7 +37,6 @@ export const processGroceryBill = async (
     `${c.name}: [${c.subCategories.map(s => s.name).join(', ')}]`
   ).join('\n');
 
-  // Stringify overrides for the prompt
   const overrideContext = Object.entries(overrides).length > 0 
     ? `USER PREFERENCES (Follow these strictly if you see these items again):\n${Object.entries(overrides).map(([desc, ov]) => `- "${desc}" should be ${ov.categoryName} -> ${ov.subCategoryName}`).join('\n')}`
     : "";
@@ -102,6 +102,59 @@ export const processGroceryBill = async (
     return JSON.parse(response.text || '{}');
   } catch (error) {
     console.error("OCR Processing Error:", error);
+    throw error;
+  }
+};
+
+export const processLoanScreenshot = async (base64Image: string): Promise<any> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  const prompt = `
+    Analyze this screenshot containing financial loan or repayment transactions.
+    Extract every individual transaction found.
+    For each transaction, determine:
+    1. Date (YYYY-MM-DD)
+    2. Description/Reason (Be descriptive)
+    3. Amount (number)
+    4. Logical Account Name (Group similar transactions by their likely purpose or creditor name)
+
+    Return a JSON object containing an array of 'transactions'.
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] || base64Image } }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            transactions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  date: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  amount: { type: Type.NUMBER },
+                  suggestedAccount: { type: Type.STRING, description: "Group transactions into logical account names" },
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    return JSON.parse(response.text || '{"transactions": []}');
+  } catch (error) {
+    console.error("Loan OCR Processing Error:", error);
     throw error;
   }
 };

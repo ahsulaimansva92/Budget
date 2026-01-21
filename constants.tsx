@@ -219,5 +219,6 @@ export const INITIAL_DATA: BudgetData = {
     expenses: []
   },
   groceryCategories: INITIAL_GROCERY_CATEGORIES,
-  groceryBills: []
+  groceryBills: [],
+  loans: []
 };
