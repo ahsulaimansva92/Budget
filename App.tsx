@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   BudgetData, IncomeSource, ExpenseItem, OneTimePayment, SavingsEntry, SavingsWithdrawal, 
@@ -51,7 +50,7 @@ const SearchableCategoryDropdown: React.FC<{
 
   const currentLabel = useMemo(() => {
     const [_, subId] = currentValue.split('|');
-    if (subId === 'unassigned') return placeholder;
+    if (!subId || subId === 'unassigned') return placeholder;
     
     for (const cat of categories) {
       const sub = cat.subCategories.find(s => s.id === subId);
@@ -82,7 +81,7 @@ const SearchableCategoryDropdown: React.FC<{
             <input
               autoFocus
               type="text"
-              placeholder="Search items (e.g. 'Rice', 'Milk')..."
+              placeholder="Search items..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full px-3 py-2 text-xs font-semibold border border-slate-200 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none placeholder:text-slate-400"
@@ -153,13 +152,9 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loanFileInputRef = useRef<HTMLInputElement>(null);
 
-  // Modal states for Loans
   const [selectedLoanAccountId, setSelectedLoanAccountId] = useState<string | null>(null);
   const [isLoanOcrLoading, setIsLoanOcrLoading] = useState(false);
 
-  /**
-   * Sync function to ensure Cash tab matches items marked as "Cash Handled"
-   */
   const syncCashData = (currentData: BudgetData): BudgetData => {
     const today = new Date().toISOString().split('T')[0];
     const nonSyncedCashIncome = currentData.cash.income.filter(item => !item.id.startsWith('cash-sync-'));
@@ -369,44 +364,6 @@ const App: React.FC = () => {
     setData(prev => ({ ...prev, cash: { ...prev.cash, openingBalance: Number(amount) } }));
   };
 
-  const handleAddCashItem = (type: 'income' | 'expenses') => {
-    const newItem: CashEntry = {
-      id: `cash-${type}-${Date.now()}`,
-      amount: 0,
-      date: new Date().toISOString().split('T')[0],
-      description: 'New Item'
-    };
-    setData(prev => ({
-      ...prev,
-      cash: { ...prev.cash, [type]: [...prev.cash[type], newItem] }
-    }));
-  };
-
-  const handleUpdateCashItem = (type: 'income' | 'expenses', id: string, field: keyof CashEntry, value: any) => {
-    setData(prev => ({
-      ...prev,
-      cash: {
-        ...prev.cash,
-        [type]: prev.cash[type].map(item => item.id === id ? { ...item, [field]: (field === 'amount' ? Number(value) : value) } : item)
-      }
-    }));
-  };
-
-  const handleRemoveCashItem = (type: 'income' | 'expenses', id: string) => {
-    setData(prev => {
-      if (id.startsWith('cash-sync-')) {
-        const sourceId = id.split('-inc-')[1] || id.split('-exp-')[1];
-        const newIncome = prev.income.map(i => i.id === sourceId ? { ...i, isCashHandled: false } : i);
-        const newExpenses = prev.expenses.map(e => e.id === sourceId ? { ...e, isCashHandled: false } : e);
-        return syncCashData({ ...prev, income: newIncome, expenses: newExpenses });
-      }
-      return {
-        ...prev,
-        cash: { ...prev.cash, [type]: prev.cash[type].filter(item => item.id !== id) }
-      };
-    });
-  };
-
   const handleUpdateSavingsOpening = (amount: number) => {
     setData(prev => ({ ...prev, savings: { ...prev.savings, openingBalance: Number(amount) } }));
   };
@@ -416,31 +373,9 @@ const App: React.FC = () => {
     setData(prev => ({ ...prev, savings: { ...prev.savings, additions: [...prev.savings.additions, newEntry] } }));
   };
 
-  const handleUpdateSavingsAddition = (id: string, field: keyof SavingsEntry, value: any) => {
-    setData(prev => ({
-      ...prev,
-      savings: { ...prev.savings, additions: prev.savings.additions.map(a => a.id === id ? { ...a, [field]: (field === 'amount' ? Number(value) : value) } : a) }
-    }));
-  };
-
-  const handleRemoveSavingsAddition = (id: string) => {
-    setData(prev => ({ ...prev, savings: { ...prev.savings, additions: prev.savings.additions.filter(a => a.id !== id) } }));
-  };
-
   const handleAddSavingsWithdrawal = () => {
     const newWithdrawal: SavingsWithdrawal = { id: `sav-wd-${Date.now()}`, amount: 0, date: new Date().toISOString().split('T')[0], reason: 'General' };
     setData(prev => ({ ...prev, savings: { ...prev.savings, withdrawals: [...prev.savings.withdrawals, newWithdrawal] } }));
-  };
-
-  const handleUpdateSavingsWithdrawal = (id: string, field: keyof SavingsWithdrawal, value: any) => {
-    setData(prev => ({
-      ...prev,
-      savings: { ...prev.savings, withdrawals: prev.savings.withdrawals.map(w => w.id === id ? { ...w, [field]: (field === 'amount' ? Number(value) : value) } : w) }
-    }));
-  };
-
-  const handleRemoveSavingsWithdrawal = (id: string) => {
-    setData(prev => ({ ...prev, savings: { ...prev.savings, withdrawals: prev.savings.withdrawals.filter(w => w.id !== id) } }));
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -480,12 +415,13 @@ const App: React.FC = () => {
         alert("Failed to process bill image.");
       } finally {
         setIsOcrLoading(false);
+        e.target.value = '';
       }
     };
     reader.readAsDataURL(file);
   };
 
-  const handleLoanFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLoanFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetAccountId?: string) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsLoanOcrLoading(true);
@@ -499,8 +435,13 @@ const App: React.FC = () => {
         setData(prev => {
           let updatedLoans = [...prev.loans];
           extractedTransactions.forEach((tx: any) => {
-            const accName = tx.suggestedAccount || 'General Loan Account';
-            let acc = updatedLoans.find(l => l.name.toLowerCase() === accName.toLowerCase());
+            const accName = targetAccountId 
+              ? (updatedLoans.find(l => l.id === targetAccountId)?.name || tx.suggestedAccount || 'General Loan Account')
+              : (tx.suggestedAccount || 'General Loan Account');
+            
+            let acc = targetAccountId 
+              ? updatedLoans.find(l => l.id === targetAccountId)
+              : updatedLoans.find(l => l.name.toLowerCase() === accName.toLowerCase());
             
             if (!acc) {
               acc = { id: `loan-${Date.now()}-${Math.random()}`, name: accName, openingBalance: 0, transactions: [] };
@@ -524,6 +465,7 @@ const App: React.FC = () => {
         alert("Failed to process loan evidence.");
       } finally {
         setIsLoanOcrLoading(false);
+        e.target.value = '';
       }
     };
     reader.readAsDataURL(file);
@@ -558,6 +500,16 @@ const App: React.FC = () => {
           return { ...acc, transactions: acc.transactions.filter(tx => tx.id !== txId) };
         })
       }));
+    }
+  };
+
+  const handleDeleteLoanAccount = (accId: string) => {
+    if (confirm("Are you sure you want to delete this entire loan account?")) {
+      setData(prev => ({
+        ...prev,
+        loans: prev.loans.filter(acc => acc.id !== accId)
+      }));
+      if (selectedLoanAccountId === accId) setSelectedLoanAccountId(null);
     }
   };
 
@@ -605,7 +557,6 @@ const App: React.FC = () => {
     { name: 'Surplus', value: Math.max(0, totals.balance), fill: '#16a34a' },
   ];
 
-  // Helper for loan calculation details
   const getSelectedLoanAccount = () => data.loans.find(a => a.id === selectedLoanAccountId);
   const loanSummary = useMemo(() => {
     const acc = getSelectedLoanAccount();
@@ -751,7 +702,6 @@ const App: React.FC = () => {
               <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 pb-3 border-indigo-500">
                 <div>
                   <h3 className="text-xl font-black text-indigo-800">1. Expenses via Salary</h3>
-                  <p className="text-sm text-slate-500 font-medium">Auto-deductions and primary monthly bills</p>
                 </div>
                 <div className="text-right mt-3 md:mt-0 bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100 flex flex-col gap-1 shadow-sm">
                   <div>
@@ -815,7 +765,6 @@ const App: React.FC = () => {
               <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 pb-3 border-emerald-500">
                 <div>
                   <h3 className="text-xl font-black text-emerald-800">2. Expenses via Rent</h3>
-                  <p className="text-sm text-slate-500 font-medium">Allocations and payments funded by Rent Income</p>
                 </div>
                 <div className="text-right mt-3 md:mt-0 bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-100 flex flex-col gap-1 shadow-sm">
                   <div>
@@ -960,6 +909,152 @@ const App: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-100">
+                <div className="flex justify-between items-center mb-6 border-b pb-3">
+                    <h3 className="text-lg font-black text-slate-900">Spend by Category</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {data.groceryCategories.map(cat => (
+                    <div key={cat.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+                        <div className="flex justify-between items-start mb-4">
+                          <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">{cat.name}</span>
+                          <span className="text-lg font-black text-slate-900">Rs. {Number(categoryTotals[cat.id] || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {cat.subCategories.map(sub => {
+                            const stats = groceryStats[sub.id];
+                            if (!stats) return null;
+                            return (
+                              <div key={sub.id} className="text-xs flex flex-col gap-1 border-t pt-2 mt-1 cursor-pointer hover:bg-white hover:rounded-lg p-1 transition-all group" onClick={() => setShowBreakupSubId(sub.id)}>
+                                <div className="flex justify-between font-bold text-slate-700 group-hover:text-indigo-600">
+                                  <span>{sub.name}</span>
+                                  <span>Rs. {Number(stats.totalAmount).toLocaleString()}</span>
+                                </div>
+                                <div className="flex justify-between text-[10px] text-slate-400 italic">
+                                  <span>Qty: {Number(stats.totalQuantity).toFixed(1)}</span>
+                                  <span>Avg: Rs. {Number(stats.avgUnitCost).toFixed(2)}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {grocerySubTab === 'bills' && (
+            <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {data.groceryBills.length === 0 ? (
+                  <div className="col-span-full py-20 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
+                    <div className="text-5xl mb-4 opacity-30">📂</div>
+                    <p className="text-slate-400 font-black uppercase tracking-widest">No bills archived yet</p>
+                  </div>
+                ) : (
+                  data.groceryBills.map(bill => (
+                    <div key={bill.id} className="bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden group hover:shadow-xl transition-shadow">
+                      <div className="relative h-40 bg-slate-100">
+                          {bill.imageUrl ? (
+                            <img src={bill.imageUrl} className="w-full h-full object-cover opacity-60 grayscale group-hover:grayscale-0 transition-all duration-500" />
+                          ) : (
+                            <div className="flex items-center justify-center h-full text-slate-300 font-bold">No Image</div>
+                          )}
+                          <div className="absolute inset-0 p-4 flex flex-col justify-end bg-gradient-to-t from-black/60 to-transparent">
+                            <h4 className="text-white font-black text-lg">{bill.shopName}</h4>
+                            <p className="text-white/80 text-xs font-bold uppercase tracking-widest">{bill.date}</p>
+                          </div>
+                      </div>
+                      <div className="p-5 flex justify-between items-center bg-white">
+                          <div>
+                            <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Total Bill</p>
+                            <p className="text-xl font-black text-indigo-700">Rs. {Number(bill.totalAmount).toLocaleString()}</p>
+                          </div>
+                          <button 
+                            onClick={() => setShowAuditBillId(bill.id)}
+                            className="bg-slate-50 hover:bg-slate-100 text-slate-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-slate-200 transition-colors"
+                          >
+                            View Audit
+                          </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {grocerySubTab === 'categories' && (
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
+              <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
+                <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
+                    <div className="flex flex-col">
+                      <h3 className="text-xl font-bold tracking-tight">Category Configuration</h3>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        const newCat: GroceryCategory = { id: `g-cat-${Date.now()}`, name: 'New Category', subCategories: [] };
+                        setData(prev => ({ ...prev, groceryCategories: [...prev.groceryCategories, newCat] }));
+                      }}
+                      className="bg-indigo-600 hover:bg-indigo-700 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest"
+                    >
+                      + Add New Category
+                    </button>
+                </div>
+                <div className="p-8 divide-y space-y-12">
+                    {data.groceryCategories.map((cat, catIdx) => (
+                      <div key={cat.id} className="pt-8 first:pt-0">
+                        <div className="flex items-center gap-6 mb-6">
+                          <div className="flex flex-col gap-1 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                            <button onClick={() => moveCategory(catIdx, 'up')} className="text-slate-400 hover:text-indigo-600 transition-colors">▲</button>
+                            <button onClick={() => moveCategory(catIdx, 'down')} className="text-slate-400 hover:text-indigo-600 transition-colors">▼</button>
+                          </div>
+                          <input 
+                            value={cat.name} 
+                            onChange={(e) => {
+                              const newCats = [...data.groceryCategories];
+                              newCats[catIdx].name = e.target.value;
+                              setData(prev => ({ ...prev, groceryCategories: newCats }));
+                            }}
+                            className="text-2xl font-black text-slate-900 border-none focus:ring-0 bg-transparent p-0 w-full hover:bg-slate-50 transition-colors rounded-lg px-2" 
+                          />
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 ml-16">
+                          {cat.subCategories.map((sub, subIdx) => (
+                            <div key={sub.id} className="group flex items-center gap-3 bg-white px-4 py-3 rounded-2xl border border-slate-200 transition-all hover:border-indigo-200 hover:shadow-md">
+                               <div className="flex flex-col text-[10px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button onClick={() => moveSubCategory(catIdx, subIdx, 'up')} className="hover:text-indigo-600">▲</button>
+                                  <button onClick={() => moveSubCategory(catIdx, subIdx, 'down')} className="hover:text-indigo-600">▼</button>
+                               </div>
+                               <input 
+                                value={sub.name}
+                                onChange={(e) => {
+                                  const newCats = [...data.groceryCategories];
+                                  newCats[catIdx].subCategories[subIdx].name = e.target.value;
+                                  setData(prev => ({ ...prev, groceryCategories: newCats }));
+                                }}
+                                className="bg-transparent border-none focus:ring-0 text-sm font-bold text-slate-700 w-full"
+                               />
+                               <button onClick={() => {
+                                  const newCats = [...data.groceryCategories];
+                                  newCats[catIdx].subCategories = newCats[catIdx].subCategories.filter(s => s.id !== sub.id);
+                                  setData(prev => ({ ...prev, groceryCategories: newCats }));
+                               }} className="text-slate-200 hover:text-red-500">✕</button>
+                            </div>
+                          ))}
+                          <button onClick={() => {
+                              const newCats = [...data.groceryCategories];
+                              newCats[catIdx].subCategories.push({ id: `g-sub-${Date.now()}`, name: 'New Sub-item' });
+                              setData(prev => ({ ...prev, groceryCategories: newCats }));
+                          }} className="text-[10px] font-black text-indigo-500 border-2 border-dashed border-indigo-100 rounded-2xl px-6 py-3 hover:bg-indigo-50 transition-all uppercase tracking-widest">+ New Subcategory</button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -970,13 +1065,13 @@ const App: React.FC = () => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">Loan Accounts & Debt Tracker</h2>
             <div className="flex gap-3">
-              <input type="file" accept="image/*" multiple ref={loanFileInputRef} onChange={handleLoanFileUpload} className="hidden" />
+              <input type="file" accept="image/*" multiple ref={loanFileInputRef} onChange={(e) => handleLoanFileUpload(e)} className="hidden" />
               <button 
                 onClick={() => loanFileInputRef.current?.click()}
                 disabled={isLoanOcrLoading}
                 className="bg-amber-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-amber-100 transition-all hover:scale-105 active:scale-95"
               >
-                {isLoanOcrLoading ? '🌀 Processing Screenshots...' : '📷 Upload Evidence (OCR)'}
+                {isLoanOcrLoading ? '🌀 Processing Screenshots...' : '📷 General OCR Upload'}
               </button>
               <button onClick={handleAddNewLoanAccount} className="bg-slate-900 text-white px-6 py-3 rounded-xl font-bold hover:scale-105 active:scale-95 transition-all">
                 + New Account
@@ -987,7 +1082,7 @@ const App: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <SummaryCard title="Aggregate Liabilities" amount={totals.totalLoanDebt} color="red" />
             <SummaryCard title="Active Accounts" amount={data.loans.length} color="indigo" />
-            <SummaryCard title="Repayment Rate" amount={0} subtitle="Feature Coming Soon" color="green" />
+            <SummaryCard title="Total Repayments" amount={data.loans.reduce((acc, l) => acc + l.transactions.reduce((s,t) => t.type === 'repayment' ? s + Number(t.amount) : s, 0), 0)} color="green" />
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -1000,19 +1095,26 @@ const App: React.FC = () => {
                     <div 
                       key={account.id} 
                       onClick={() => setSelectedLoanAccountId(account.id)}
-                      className={`p-5 rounded-3xl cursor-pointer border transition-all ${
+                      className={`p-5 rounded-3xl cursor-pointer border transition-all relative group ${
                         selectedLoanAccountId === account.id 
                           ? 'bg-indigo-600 border-indigo-700 shadow-xl shadow-indigo-100 text-white' 
                           : 'bg-white border-slate-100 hover:border-indigo-200 text-slate-800'
                       }`}
                     >
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleDeleteLoanAccount(account.id); }}
+                        className={`absolute top-4 right-4 p-2 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity ${selectedLoanAccountId === account.id ? 'hover:bg-indigo-700 text-white/60 hover:text-white' : 'hover:bg-slate-100 text-slate-300 hover:text-red-500'}`}
+                        title="Delete Account"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                      </button>
                       <div className="flex justify-between items-start mb-2">
-                        <h4 className="font-black text-lg truncate pr-4">{account.name}</h4>
+                        <h4 className="font-black text-lg truncate pr-10">{account.name}</h4>
                         <div className={`text-[10px] font-black uppercase px-2 py-1 rounded-lg ${selectedLoanAccountId === account.id ? 'bg-white/20' : 'bg-slate-100'}`}>
                           {account.transactions.length} items
                         </div>
                       </div>
-                      <p className={`text-sm font-bold ${selectedLoanAccountId === account.id ? 'text-indigo-100' : 'text-slate-500'}`}>Account Closing Balance</p>
+                      <p className={`text-sm font-bold ${selectedLoanAccountId === account.id ? 'text-indigo-100' : 'text-slate-500'}`}>Closing Balance</p>
                       <p className={`text-2xl font-black ${selectedLoanAccountId === account.id ? 'text-white' : 'text-indigo-600'}`}>
                         Rs. {currentAccBalance.toLocaleString()}
                       </p>
@@ -1032,7 +1134,17 @@ const App: React.FC = () => {
                       </h3>
                       <p className="text-xs font-black text-slate-400 uppercase tracking-widest mt-1">Transaction History & Verification</p>
                     </div>
-                    <button onClick={() => setSelectedLoanAccountId(null)} className="text-slate-400 hover:text-slate-900 p-2">✕</button>
+                    <div className="flex gap-2">
+                      <input type="file" accept="image/*" className="hidden" id="local-loan-ocr" onChange={(e) => handleLoanFileUpload(e, selectedLoanAccountId!)} />
+                      <button 
+                        onClick={() => document.getElementById('local-loan-ocr')?.click()}
+                        disabled={isLoanOcrLoading}
+                        className="bg-amber-100 text-amber-800 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest hover:bg-amber-200 transition-colors flex items-center gap-2"
+                      >
+                        {isLoanOcrLoading ? '🌀 Scanning...' : '📷 Upload Evidence'}
+                      </button>
+                      <button onClick={() => setSelectedLoanAccountId(null)} className="text-slate-400 hover:text-slate-900 p-2 text-xl font-bold">✕</button>
+                    </div>
                   </div>
 
                   <div className="p-8 bg-white border-b flex flex-col md:flex-row gap-8 items-start justify-between">
@@ -1043,11 +1155,10 @@ const App: React.FC = () => {
                         <input 
                           type="number" 
                           value={getSelectedLoanAccount()?.openingBalance || 0}
-                          onChange={(e) => handleUpdateLoanOpeningBalance(selectedLoanAccountId, Number(e.target.value))}
+                          onChange={(e) => handleUpdateLoanOpeningBalance(selectedLoanAccountId!, Number(e.target.value))}
                           className="pl-12 pr-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl text-slate-800 focus:ring-4 focus:ring-indigo-50 outline-none w-full transition-all"
                         />
                       </div>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase mt-2 tracking-tighter">Enter the initial amount owed when tracking started</p>
                     </div>
                   </div>
 
@@ -1069,50 +1180,45 @@ const App: React.FC = () => {
                               <input 
                                 type="date" 
                                 value={tx.date} 
-                                onChange={(e) => handleUpdateLoanTransaction(selectedLoanAccountId, tx.id, 'date', e.target.value)}
+                                onChange={(e) => handleUpdateLoanTransaction(selectedLoanAccountId!, tx.id, 'date', e.target.value)}
                                 className="bg-transparent border-none focus:ring-0 p-0 font-bold text-xs text-slate-500"
                               />
                             </td>
                             <td className="px-6 py-4">
                               <input 
                                 value={tx.description} 
-                                onChange={(e) => handleUpdateLoanTransaction(selectedLoanAccountId, tx.id, 'description', e.target.value)}
+                                onChange={(e) => handleUpdateLoanTransaction(selectedLoanAccountId!, tx.id, 'description', e.target.value)}
                                 className="w-full bg-transparent border-none focus:ring-0 p-0 font-bold text-slate-800 text-sm italic"
                               />
                             </td>
                             <td className="px-6 py-4 text-center">
                               <button 
-                                onClick={() => handleUpdateLoanTransaction(selectedLoanAccountId, tx.id, 'type', tx.type === 'taken' ? 'repayment' : 'taken')}
+                                onClick={() => handleUpdateLoanTransaction(selectedLoanAccountId!, tx.id, 'type', tx.type === 'taken' ? 'repayment' : 'taken')}
                                 className={`text-[9px] font-black uppercase px-3 py-1.5 rounded-full transition-all border ${
                                   tx.type === 'taken' 
                                     ? 'bg-red-50 text-red-600 border-red-100' 
                                     : 'bg-green-50 text-green-600 border-green-100'
                                 }`}
                               >
-                                {tx.type === 'taken' ? 'Loan Taken (+)' : 'Repayment (-)'}
+                                {tx.type === 'taken' ? 'Loan Taken' : 'Repayment'}
                               </button>
                             </td>
                             <td className="px-6 py-4">
                               <input 
                                 type="number"
                                 value={tx.amount} 
-                                onChange={(e) => handleUpdateLoanTransaction(selectedLoanAccountId, tx.id, 'amount', Number(e.target.value))}
+                                onChange={(e) => handleUpdateLoanTransaction(selectedLoanAccountId!, tx.id, 'amount', Number(e.target.value))}
                                 className={`w-24 bg-transparent border-none focus:ring-0 p-0 font-black text-base ${tx.type === 'taken' ? 'text-red-700' : 'text-green-700'}`}
                               />
                             </td>
                             <td className="px-6 py-4 text-right">
                               <button 
-                                onClick={() => handleDeleteLoanTransaction(selectedLoanAccountId, tx.id)}
+                                onClick={() => handleDeleteLoanTransaction(selectedLoanAccountId!, tx.id)}
                                 className="text-slate-300 hover:text-red-500 p-2 opacity-0 group-hover:opacity-100 transition-opacity"
                               >✕</button>
                             </td>
                           </tr>
                         ))}
-                        {getSelectedLoanAccount()?.transactions.length === 0 && (
-                          <tr>
-                            <td colSpan={5} className="px-6 py-12 text-center text-slate-400 font-bold italic text-sm">No transactions yet. Add manually or upload a screenshot.</td>
-                          </tr>
-                        )}
                       </tbody>
                     </table>
                   </div>
@@ -1120,19 +1226,19 @@ const App: React.FC = () => {
                   <div className="bg-slate-900 text-white p-8">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
                       <div className="space-y-1">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Opening Balance</p>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Opening</p>
                         <p className="text-xl font-black">Rs. {loanSummary.opening.toLocaleString()}</p>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">Total Loans Taken</p>
+                        <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">Total Taken</p>
                         <p className="text-xl font-black">+ Rs. {loanSummary.totalTaken.toLocaleString()}</p>
                       </div>
                       <div className="space-y-1">
-                        <p className="text-[10px] font-black text-green-400 uppercase tracking-widest">Total Repayments</p>
+                        <p className="text-[10px] font-black text-green-400 uppercase tracking-widest">Total Repaid</p>
                         <p className="text-xl font-black">- Rs. {loanSummary.totalRepaid.toLocaleString()}</p>
                       </div>
                       <div className="space-y-1 bg-indigo-600 -m-4 p-4 rounded-xl shadow-lg border border-white/20">
-                        <p className="text-[10px] font-black text-white/70 uppercase tracking-widest">Final Closing Balance</p>
+                        <p className="text-[10px] font-black text-white/70 uppercase tracking-widest">Closing Balance</p>
                         <p className="text-2xl font-black">Rs. {loanSummary.closing.toLocaleString()}</p>
                       </div>
                     </div>
@@ -1140,18 +1246,10 @@ const App: React.FC = () => {
                   
                   <button 
                     onClick={() => {
-                      const accId = selectedLoanAccountId;
-                      if (!accId) return;
-                      const newTx: LoanTransaction = {
-                        id: `tx-${Date.now()}`,
-                        date: new Date().toISOString().split('T')[0],
-                        description: 'Manual Transaction',
-                        amount: 0,
-                        type: 'taken'
-                      };
+                      const newTx: LoanTransaction = { id: `tx-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: 'Manual Transaction', amount: 0, type: 'taken' };
                       setData(prev => ({
                         ...prev,
-                        loans: prev.loans.map(acc => acc.id === accId ? { ...acc, transactions: [...acc.transactions, newTx] } : acc)
+                        loans: prev.loans.map(acc => acc.id === selectedLoanAccountId ? { ...acc, transactions: [...acc.transactions, newTx] } : acc)
                       }));
                     }}
                     className="py-4 bg-slate-50 hover:bg-slate-100 text-slate-500 font-black text-xs uppercase tracking-widest border-t transition-colors"
@@ -1162,8 +1260,8 @@ const App: React.FC = () => {
               ) : (
                 <div className="h-full bg-white rounded-[2.5rem] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center p-12 text-center text-slate-400">
                   <div className="text-6xl mb-6 opacity-30">📜</div>
-                  <h4 className="text-lg font-black uppercase tracking-widest mb-2">Select an account</h4>
-                  <p className="text-sm font-semibold max-w-xs">View detailed payment history or upload new evidence to track your loans.</p>
+                  <h4 className="text-lg font-black uppercase tracking-widest mb-2">Select a portfolio</h4>
+                  <p className="text-sm font-semibold max-w-xs">View detailed payment history, upload evidence, or manage manual transactions.</p>
                 </div>
               )}
             </div>
@@ -1197,72 +1295,6 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-             <div className="space-y-4">
-                <h3 className="text-xl font-bold text-emerald-700">Cash Income</h3>
-                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-                   <table className="w-full text-left">
-                      <thead className="bg-emerald-500 text-white text-[10px] font-black uppercase">
-                        <tr>
-                          <th className="px-4 py-2">Date</th>
-                          <th className="px-4 py-2">Source</th>
-                          <th className="px-4 py-2">Amount</th>
-                          <th className="px-4 py-2"></th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {data.cash.income.map(item => (
-                          <tr key={item.id} className={item.isSynced ? 'bg-indigo-50/20' : ''}>
-                            <td className="px-4 py-2 text-xs font-bold text-slate-500">
-                              {item.isSynced ? item.date : <input type="date" value={item.date} onChange={(e) => handleUpdateCashItem('income', item.id, 'date', e.target.value)} className="bg-transparent border-none p-0 text-xs font-bold w-full" />}
-                            </td>
-                            <td className="px-4 py-2 text-sm font-semibold text-slate-700">
-                              {item.isSynced ? <span className="italic text-indigo-700">{item.description} (Synced)</span> : <input value={item.description} onChange={(e) => handleUpdateCashItem('income', item.id, 'description', e.target.value)} className="bg-transparent border-none p-0 text-sm font-semibold w-full" />}
-                            </td>
-                            <td className="px-4 py-2 font-black text-emerald-700">Rs. {item.amount.toLocaleString()}</td>
-                            <td className="px-4 py-2 text-right">
-                              <button onClick={() => handleRemoveCashItem('income', item.id)} className="text-slate-300 hover:text-red-500">✕</button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                   </table>
-                   <button onClick={() => handleAddCashItem('income')} className="w-full py-2 bg-emerald-50 text-emerald-700 text-xs font-black uppercase">+ Add Income</button>
-                </div>
-             </div>
-             <div className="space-y-4">
-                <h3 className="text-xl font-bold text-orange-700">Cash Expenses</h3>
-                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-                   <table className="w-full text-left">
-                      <thead className="bg-orange-500 text-white text-[10px] font-black uppercase">
-                        <tr>
-                          <th className="px-4 py-2">Date</th>
-                          <th className="px-4 py-2">Reason</th>
-                          <th className="px-4 py-2">Amount</th>
-                          <th className="px-4 py-2"></th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {data.cash.expenses.map(item => (
-                          <tr key={item.id} className={item.isSynced ? 'bg-indigo-50/20' : ''}>
-                            <td className="px-4 py-2 text-xs font-bold text-slate-500">
-                              {item.isSynced ? item.date : <input type="date" value={item.date} onChange={(e) => handleUpdateCashItem('expenses', item.id, 'date', e.target.value)} className="bg-transparent border-none p-0 text-xs font-bold w-full" />}
-                            </td>
-                            <td className="px-4 py-2 text-sm font-semibold text-slate-700">
-                              {item.isSynced ? <span className="italic text-indigo-700">{item.description} (Synced)</span> : <input value={item.description} onChange={(e) => handleUpdateCashItem('expenses', item.id, 'description', e.target.value)} className="bg-transparent border-none p-0 text-sm font-semibold w-full" />}
-                            </td>
-                            <td className="px-4 py-2 font-black text-orange-700">Rs. {item.amount.toLocaleString()}</td>
-                            <td className="px-4 py-2 text-right">
-                              <button onClick={() => handleRemoveCashItem('expenses', item.id)} className="text-slate-300 hover:text-red-500">✕</button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                   </table>
-                   <button onClick={() => handleAddCashItem('expenses')} className="w-full py-2 bg-orange-50 text-orange-700 text-xs font-black uppercase">+ Add Expense</button>
-                </div>
-             </div>
-          </div>
         </div>
       )}
 
@@ -1270,15 +1302,6 @@ const App: React.FC = () => {
         <div className="space-y-8 animate-in fade-in duration-300">
            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">One-Time Commitments</h2>
-            <button 
-              onClick={() => {
-                const newItem: OneTimePayment = { id: `otp-${Date.now()}`, title: 'New Requirement', totalAmount: 0, paidAmount: 0, dueDate: '' };
-                setData(prev => ({ ...prev, oneTimePayments: [...prev.oneTimePayments, newItem] }));
-              }}
-              className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-xs hover:bg-blue-700 shadow-lg"
-            >
-              + ADD NEW PAYMENT
-            </button>
           </div>
           <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
             <table className="w-full text-left border-collapse">
@@ -1295,7 +1318,7 @@ const App: React.FC = () => {
                 {data.oneTimePayments.map(item => {
                   const progress = Number(item.totalAmount) > 0 ? Math.min(100, (Number(item.paidAmount) / Number(item.totalAmount)) * 100) : 0;
                   return (
-                    <tr key={item.id} className="hover:bg-blue-50/20">
+                    <tr key={item.id} className="hover:bg-blue-50/20 transition-colors">
                       <td className="px-6 py-4 font-bold text-sm">
                         <input value={item.title} onChange={(e) => handleUpdateOneTime(item.id, 'title', e.target.value)} className="bg-transparent border-none p-0 w-full" />
                       </td>
@@ -1341,7 +1364,7 @@ const App: React.FC = () => {
                 <h3 className="font-bold text-indigo-700">Additions</h3>
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                    <table className="w-full text-left text-sm">
-                      <thead className="bg-indigo-500 text-white text-[10px] font-black">
+                      <thead className="bg-indigo-500 text-white text-[10px] font-black uppercase">
                         <tr><th className="px-4 py-2">Date</th><th className="px-4 py-2">Amount</th></tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -1353,14 +1376,14 @@ const App: React.FC = () => {
                         ))}
                       </tbody>
                    </table>
-                   <button onClick={handleAddSavingsAddition} className="w-full py-2 bg-indigo-50 text-indigo-700 text-xs font-black">+ Add Deposit</button>
+                   <button onClick={handleAddSavingsAddition} className="w-full py-2 bg-indigo-50 text-indigo-700 text-xs font-black uppercase transition-colors">+ Add Deposit</button>
                 </div>
              </div>
              <div className="space-y-4">
                 <h3 className="font-bold text-orange-700">Withdrawals</h3>
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                    <table className="w-full text-left text-sm">
-                      <thead className="bg-orange-500 text-white text-[10px] font-black">
+                      <thead className="bg-orange-500 text-white text-[10px] font-black uppercase">
                         <tr><th className="px-4 py-2">Date</th><th className="px-4 py-2">Reason</th><th className="px-4 py-2">Amount</th></tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -1373,9 +1396,81 @@ const App: React.FC = () => {
                         ))}
                       </tbody>
                    </table>
-                   <button onClick={handleAddSavingsWithdrawal} className="w-full py-2 bg-orange-50 text-orange-700 text-xs font-black">+ Add Withdrawal</button>
+                   <button onClick={handleAddSavingsWithdrawal} className="w-full py-2 bg-orange-50 text-orange-700 text-xs font-black uppercase transition-colors">+ Add Withdrawal</button>
                 </div>
              </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODALS */}
+      {showBreakupSubId && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
+           <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
+              <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+                <div>
+                  <h3 className="text-2xl font-black text-slate-900 tracking-tight">{selectedSubCategoryName} Breakdown</h3>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Manage individual item categorizations</p>
+                </div>
+                <button onClick={() => setShowBreakupSubId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
+              </div>
+              <div className="flex-1 overflow-auto p-8">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-100 sticky top-0 z-10">
+                    <tr>
+                      <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Date</th>
+                      <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Shop</th>
+                      <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Item Description</th>
+                      <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Cost (Rs.)</th>
+                      <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Move To</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {breakupItems.map(item => (
+                      <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="px-4 py-4 text-xs font-bold text-slate-400">{item.billDate}</td>
+                        <td className="px-4 py-4 text-sm font-black text-slate-700">{item.billShop}</td>
+                        <td className="px-4 py-4 text-sm font-medium text-slate-600 italic">"{item.description}"</td>
+                        <td className="px-4 py-4 text-sm font-black text-indigo-700">Rs. {Number(item.totalCost).toLocaleString()}</td>
+                        <td className="px-4 py-4">
+                          <SearchableCategoryDropdown 
+                            currentValue={`${item.categoryId}|${item.subCategoryId}`}
+                            categories={data.groceryCategories}
+                            onSelect={(catId, subCatId) => handleCategorizeItem(item.billId!, item.id, catId, subCatId)}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {showAuditBillId && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95">
+            <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+              <h3 className="text-2xl font-black text-slate-900 tracking-tight">Audit Scanned Bill</h3>
+              <button onClick={() => setShowAuditBillId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
+            </div>
+            <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-2 gap-10">
+                <div className="rounded-3xl border-2 border-slate-100 overflow-hidden">
+                  <img src={data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrl} className="w-full" alt="Receipt" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black text-slate-500 uppercase mb-4 tracking-widest">Extracted Items</h4>
+                  <div className="space-y-2">
+                    {data.groceryBills.find(b => b.id === showAuditBillId)?.items.map(item => (
+                      <div key={item.id} className="p-3 bg-slate-50 rounded-xl flex justify-between items-center">
+                        <span className="text-sm font-bold text-slate-700">{item.description}</span>
+                        <span className="text-sm font-black text-indigo-600">Rs. {item.totalCost.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+            </div>
           </div>
         </div>
       )}
