@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   BudgetData, IncomeSource, ExpenseItem, OneTimePayment, SavingsEntry, SavingsWithdrawal, 
@@ -604,6 +605,18 @@ const App: React.FC = () => {
     { name: 'Surplus', value: Math.max(0, totals.balance), fill: '#16a34a' },
   ];
 
+  // Helper for loan calculation details
+  const getSelectedLoanAccount = () => data.loans.find(a => a.id === selectedLoanAccountId);
+  const loanSummary = useMemo(() => {
+    const acc = getSelectedLoanAccount();
+    if (!acc) return null;
+    const opening = Number(acc.openingBalance || 0);
+    const totalTaken = acc.transactions.reduce((s, t) => t.type === 'taken' ? s + Number(t.amount) : s, 0);
+    const totalRepaid = acc.transactions.reduce((s, t) => t.type === 'repayment' ? s + Number(t.amount) : s, 0);
+    const closing = opening + totalTaken - totalRepaid;
+    return { opening, totalTaken, totalRepaid, closing };
+  }, [selectedLoanAccountId, data.loans]);
+
   return (
     <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
       {activeTab === 'dashboard' && (
@@ -797,6 +810,70 @@ const App: React.FC = () => {
                 <button onClick={() => handleAddExpense('Salary')} className="w-full py-3.5 text-xs font-black text-indigo-600 bg-indigo-50/50 hover:bg-indigo-100 transition-all border-t border-indigo-100">+ ADD SALARY EXPENSE</button>
               </div>
             </div>
+
+            <div className="space-y-4">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 pb-3 border-emerald-500">
+                <div>
+                  <h3 className="text-xl font-black text-emerald-800">2. Expenses via Rent</h3>
+                  <p className="text-sm text-slate-500 font-medium">Allocations and payments funded by Rent Income</p>
+                </div>
+                <div className="text-right mt-3 md:mt-0 bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-100 flex flex-col gap-1 shadow-sm">
+                  <div>
+                    <span className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider block">Total Rent Income</span>
+                    <span className="text-sm font-bold text-slate-700">Rs. {totals.rentIncome.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-emerald-600">
+                    <tr>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest w-16 text-center">Cash?</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest w-1/4">Category</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest">Description</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest w-1/4">Amount (Rs.)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.expenses.filter(e => e.sourceType === 'Rent').map(item => (
+                      <tr key={item.id} className="hover:bg-emerald-50/30 transition-colors">
+                        <td className="px-6 py-2 text-center">
+                          <input 
+                            type="checkbox" 
+                            checked={item.isCashHandled || false}
+                            onChange={(e) => handleUpdateExpense(item.id, 'isCashHandled', e.target.checked)}
+                            className="w-4 h-4 accent-emerald-600 cursor-pointer"
+                          />
+                        </td>
+                        <td className="px-6 py-2">
+                          <input
+                            value={item.category}
+                            onChange={(e) => handleUpdateExpense(item.id, 'category', e.target.value)}
+                            className="bg-transparent border-none focus:ring-0 w-full text-slate-500 text-[11px] font-bold italic tracking-tight"
+                          />
+                        </td>
+                        <td className="px-6 py-2">
+                          <input
+                            value={item.name}
+                            onChange={(e) => handleUpdateExpense(item.id, 'name', e.target.value)}
+                            className="w-full border-none focus:ring-0 text-slate-800 font-semibold text-sm"
+                          />
+                        </td>
+                        <td className="px-6 py-2">
+                          <input
+                            type="number"
+                            value={item.amount}
+                            onChange={(e) => handleUpdateExpense(item.id, 'amount', Number(e.target.value))}
+                            className="w-full border-none focus:ring-0 text-emerald-700 font-bold text-sm"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <button onClick={() => handleAddExpense('Rent')} className="w-full py-3.5 text-xs font-black text-emerald-600 bg-emerald-50/50 hover:bg-emerald-100 transition-all border-t border-emerald-100">+ ADD RENT EXPENSE</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -806,13 +883,7 @@ const App: React.FC = () => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">Grocery Tracker</h2>
             <div className="flex gap-3">
-              <input 
-                type="file" 
-                accept="image/*" 
-                ref={fileInputRef} 
-                onChange={handleFileUpload} 
-                className="hidden" 
-              />
+              <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
               <button 
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isOcrLoading}
@@ -889,270 +960,6 @@ const App: React.FC = () => {
                   </div>
                 </div>
               )}
-
-              <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-100">
-                <div className="flex justify-between items-center mb-6 border-b pb-3">
-                    <h3 className="text-lg font-black text-slate-900">Spend by Category</h3>
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest italic">Click a sub-category to view items</p>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {data.groceryCategories.map(cat => (
-                    <div key={cat.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                        <div className="flex justify-between items-start mb-4">
-                          <span className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">{cat.name}</span>
-                          <span className="text-lg font-black text-slate-900">Rs. {Number(categoryTotals[cat.id] || 0).toLocaleString()}</span>
-                        </div>
-                        <div className="space-y-2">
-                          {cat.subCategories.map(sub => {
-                            const stats = groceryStats[sub.id];
-                            if (!stats) return null;
-                            return (
-                              <div 
-                                key={sub.id} 
-                                onClick={() => setShowBreakupSubId(sub.id)}
-                                className="text-xs flex flex-col gap-1 border-t pt-2 mt-1 cursor-pointer hover:bg-white hover:rounded-lg p-1 transition-all group"
-                              >
-                                <div className="flex justify-between font-bold text-slate-700 group-hover:text-indigo-600">
-                                  <span>{sub.name}</span>
-                                  <span>Rs. {Number(stats.totalAmount).toLocaleString()}</span>
-                                </div>
-                                <div className="flex justify-between text-[10px] text-slate-400 italic">
-                                  <span>Qty: {Number(stats.totalQuantity).toFixed(1)}</span>
-                                  <span>Avg: Rs. {Number(stats.avgUnitCost).toFixed(2)}</span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {grocerySubTab === 'bills' && (
-            <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {data.groceryBills.length === 0 ? (
-                  <div className="col-span-full py-20 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
-                    <div className="text-5xl mb-4 opacity-30">📂</div>
-                    <p className="text-slate-400 font-black uppercase tracking-widest">No bills archived yet</p>
-                  </div>
-                ) : (
-                  data.groceryBills.map(bill => (
-                    <div key={bill.id} className="bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden group hover:shadow-xl transition-shadow">
-                      <div className="relative h-40 bg-slate-100">
-                          {bill.imageUrl ? (
-                            <img src={bill.imageUrl} className="w-full h-full object-cover opacity-60 grayscale group-hover:grayscale-0 transition-all duration-500" />
-                          ) : (
-                            <div className="flex items-center justify-center h-full text-slate-300 font-bold">No Image</div>
-                          )}
-                          <div className="absolute inset-0 p-4 flex flex-col justify-end bg-gradient-to-t from-black/60 to-transparent">
-                            <h4 className="text-white font-black text-lg">{bill.shopName}</h4>
-                            <p className="text-white/80 text-xs font-bold uppercase tracking-widest">{bill.date}</p>
-                          </div>
-                      </div>
-                      <div className="p-5 flex justify-between items-center bg-white">
-                          <div>
-                            <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Total Bill</p>
-                            <p className="text-xl font-black text-indigo-700">Rs. {Number(bill.totalAmount).toLocaleString()}</p>
-                          </div>
-                          <button 
-                            onClick={() => setShowAuditBillId(bill.id)}
-                            className="bg-slate-50 hover:bg-slate-100 text-slate-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-slate-200 transition-colors"
-                          >
-                            View Audit
-                          </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          {grocerySubTab === 'categories' && (
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-300">
-              <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden">
-                <div className="p-6 bg-slate-900 text-white flex justify-between items-center">
-                    <div className="flex flex-col">
-                      <h3 className="text-xl font-bold tracking-tight">Category Configuration</h3>
-                      <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Refine your tracking hierarchy</p>
-                    </div>
-                    <button 
-                      onClick={() => {
-                        const newCat: GroceryCategory = { id: `g-cat-${Date.now()}`, name: 'New Category', subCategories: [] };
-                        setData(prev => ({ ...prev, groceryCategories: [...prev.groceryCategories, newCat] }));
-                      }}
-                      className="bg-indigo-600 hover:bg-indigo-700 px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-black/20"
-                    >
-                      + Add New Category
-                    </button>
-                </div>
-                <div className="p-8 divide-y space-y-12">
-                    {data.groceryCategories.map((cat, catIdx) => (
-                      <div key={cat.id} className="pt-8 first:pt-0">
-                        <div className="flex items-center gap-6 mb-6">
-                          <div className="flex flex-col gap-1 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                            <button onClick={() => moveCategory(catIdx, 'up')} className="text-slate-400 hover:text-indigo-600 transition-colors">▲</button>
-                            <button onClick={() => moveCategory(catIdx, 'down')} className="text-slate-400 hover:text-indigo-600 transition-colors">▼</button>
-                          </div>
-                          <input 
-                            value={cat.name} 
-                            onChange={(e) => {
-                              const newCats = [...data.groceryCategories];
-                              newCats[catIdx].name = e.target.value;
-                              setData(prev => ({ ...prev, groceryCategories: newCats }));
-                            }}
-                            className="text-2xl font-black text-slate-900 border-none focus:ring-0 bg-transparent p-0 w-full hover:bg-slate-50 transition-colors rounded-lg px-2" 
-                          />
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 ml-16">
-                          {cat.subCategories.map((sub, subIdx) => (
-                            <div key={sub.id} className="group flex items-center gap-3 bg-white px-4 py-3 rounded-2xl border border-slate-200 transition-all hover:border-indigo-200 hover:shadow-md">
-                               <div className="flex flex-col text-[10px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button onClick={() => moveSubCategory(catIdx, subIdx, 'up')} className="hover:text-indigo-600">▲</button>
-                                  <button onClick={() => moveSubCategory(catIdx, subIdx, 'down')} className="hover:text-indigo-600">▼</button>
-                               </div>
-                               <input 
-                                value={sub.name}
-                                onChange={(e) => {
-                                  const newCats = [...data.groceryCategories];
-                                  newCats[catIdx].subCategories[subIdx].name = e.target.value;
-                                  setData(prev => ({ ...prev, groceryCategories: newCats }));
-                                }}
-                                className="bg-transparent border-none focus:ring-0 text-sm font-bold text-slate-700 w-full"
-                               />
-                               <button 
-                                 onClick={() => {
-                                   if (confirm(`Delete sub-category "${sub.name}"?`)) {
-                                      const newCats = [...data.groceryCategories];
-                                      newCats[catIdx].subCategories = newCats[catIdx].subCategories.filter(s => s.id !== sub.id);
-                                      setData(prev => ({ ...prev, groceryCategories: newCats }));
-                                   }
-                                 }}
-                                 className="text-slate-200 hover:text-red-500 text-sm transition-colors"
-                               >✕</button>
-                            </div>
-                          ))}
-                          <button 
-                            onClick={() => {
-                              const newCats = [...data.groceryCategories];
-                              const newSub: GrocerySubCategory = { id: `g-sub-${Date.now()}`, name: 'New Sub-item' };
-                              newCats[catIdx].subCategories.push(newSub);
-                              setData(prev => ({ ...prev, groceryCategories: newCats }));
-                            }}
-                            className="text-[10px] font-black text-indigo-500 border-2 border-dashed border-indigo-100 rounded-2xl px-6 py-3 hover:bg-indigo-50 hover:border-indigo-200 transition-all uppercase tracking-widest"
-                          >
-                            + New Subcategory
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {showBreakupSubId && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
-               <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
-                  <div className="p-8 border-b flex justify-between items-center bg-slate-50">
-                    <div>
-                      <h3 className="text-2xl font-black text-slate-900 tracking-tight">{selectedSubCategoryName}</h3>
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Detailed Item Breakdown & Management</p>
-                    </div>
-                    <button onClick={() => setShowBreakupSubId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
-                  </div>
-                  <div className="flex-1 overflow-auto p-8">
-                    <table className="w-full text-left border-collapse">
-                      <thead className="bg-slate-100 sticky top-0 z-10">
-                        <tr>
-                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Date</th>
-                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Shop</th>
-                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Item Description</th>
-                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Cost (Rs.)</th>
-                          <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Move To Category</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {breakupItems.map(item => (
-                          <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="px-4 py-4 text-xs font-bold text-slate-400 whitespace-nowrap">{item.billDate}</td>
-                            <td className="px-4 py-4 text-sm font-black text-slate-700 whitespace-nowrap">{item.billShop}</td>
-                            <td className="px-4 py-4 text-sm font-medium text-slate-600 italic">"{item.description}"</td>
-                            <td className="px-4 py-4 text-sm font-black text-indigo-700">Rs. {Number(item.totalCost).toLocaleString()}</td>
-                            <td className="px-4 py-4">
-                              <SearchableCategoryDropdown 
-                                currentValue={`${item.categoryId}|${item.subCategoryId}`}
-                                categories={data.groceryCategories}
-                                onSelect={(catId, subCatId) => handleCategorizeItem(item.billId!, item.id, catId, subCatId)}
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                      <tfoot className="bg-indigo-50 font-black text-indigo-900 sticky bottom-0">
-                        <tr>
-                          <td colSpan={3} className="px-4 py-4 text-right uppercase text-[10px] tracking-widest">Total Spend in Category</td>
-                          <td colSpan={2} className="px-4 py-4 text-lg">Rs. {breakupItems.reduce((s, i) => s + Number(i.totalCost), 0).toLocaleString()}</td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-               </div>
-            </div>
-          )}
-
-          {showAuditBillId && (
-            <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-              <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95">
-                <div className="p-8 border-b flex justify-between items-center bg-slate-50">
-                  <div className="flex flex-col">
-                    <h3 className="text-2xl font-black text-slate-900 tracking-tight">Bill Source Audit</h3>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Comparing digital extraction with physical record</p>
-                  </div>
-                  <button onClick={() => setShowAuditBillId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
-                </div>
-                <div className="flex-1 overflow-auto p-8">
-                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-                      <div>
-                        <h4 className="text-xs font-black text-slate-500 uppercase mb-4 tracking-widest flex items-center gap-2">
-                          <span className="text-lg">🖼️</span> Original Receipt
-                        </h4>
-                        <div className="rounded-3xl border-2 border-slate-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                          <img src={data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrl} className="w-full" alt="Original Receipt" />
-                        </div>
-                      </div>
-                      <div className="flex flex-col">
-                        <h4 className="text-xs font-black text-slate-500 uppercase mb-4 tracking-widest flex items-center gap-2">
-                          <span className="text-lg">🔡</span> AI Extracted Items
-                        </h4>
-                        <div className="flex-1 bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden">
-                          <table className="w-full text-left text-sm border-collapse">
-                            <thead className="bg-white border-b border-slate-200">
-                              <tr>
-                                <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Extraction</th>
-                                <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Qty</th>
-                                <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Cost (Rs.)</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 bg-white/50">
-                              {data.groceryBills.find(b => b.id === showAuditBillId)?.items.map(item => (
-                                <tr key={item.id} className="hover:bg-white transition-colors">
-                                  <td className="px-4 py-4 text-xs font-semibold text-slate-700 italic">"{item.rawDescription}"</td>
-                                  <td className="px-4 py-4 text-xs font-bold text-slate-500">{item.quantity} {item.unit}</td>
-                                  <td className="px-4 py-4 text-xs font-black text-indigo-600">Rs. {Number(item.totalCost).toLocaleString()}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                   </div>
-                </div>
-              </div>
             </div>
           )}
         </div>
@@ -1186,59 +993,67 @@ const App: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-1 space-y-4">
               <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest px-2">Loan Portfolios</h3>
-              {data.loans.map(account => {
-                const balance = Number(account.openingBalance || 0) + account.transactions.reduce((s, t) => t.type === 'taken' ? s + Number(t.amount) : s - Number(t.amount), 0);
-                return (
-                  <div 
-                    key={account.id} 
-                    onClick={() => setSelectedLoanAccountId(account.id)}
-                    className={`p-5 rounded-3xl cursor-pointer border transition-all ${
-                      selectedLoanAccountId === account.id 
-                        ? 'bg-indigo-600 border-indigo-700 shadow-xl shadow-indigo-100 text-white' 
-                        : 'bg-white border-slate-100 hover:border-indigo-200 text-slate-800'
-                    }`}
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <h4 className="font-black text-lg truncate pr-4">{account.name}</h4>
-                      <div className={`text-[10px] font-black uppercase px-2 py-1 rounded-lg ${selectedLoanAccountId === account.id ? 'bg-white/20' : 'bg-slate-100'}`}>
-                        {account.transactions.length} items
+              <div className="space-y-3">
+                {data.loans.map(account => {
+                  const currentAccBalance = Number(account.openingBalance || 0) + account.transactions.reduce((s, t) => t.type === 'taken' ? s + Number(t.amount) : s - Number(t.amount), 0);
+                  return (
+                    <div 
+                      key={account.id} 
+                      onClick={() => setSelectedLoanAccountId(account.id)}
+                      className={`p-5 rounded-3xl cursor-pointer border transition-all ${
+                        selectedLoanAccountId === account.id 
+                          ? 'bg-indigo-600 border-indigo-700 shadow-xl shadow-indigo-100 text-white' 
+                          : 'bg-white border-slate-100 hover:border-indigo-200 text-slate-800'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <h4 className="font-black text-lg truncate pr-4">{account.name}</h4>
+                        <div className={`text-[10px] font-black uppercase px-2 py-1 rounded-lg ${selectedLoanAccountId === account.id ? 'bg-white/20' : 'bg-slate-100'}`}>
+                          {account.transactions.length} items
+                        </div>
                       </div>
+                      <p className={`text-sm font-bold ${selectedLoanAccountId === account.id ? 'text-indigo-100' : 'text-slate-500'}`}>Account Closing Balance</p>
+                      <p className={`text-2xl font-black ${selectedLoanAccountId === account.id ? 'text-white' : 'text-indigo-600'}`}>
+                        Rs. {currentAccBalance.toLocaleString()}
+                      </p>
                     </div>
-                    <p className={`text-sm font-bold ${selectedLoanAccountId === account.id ? 'text-indigo-100' : 'text-slate-500'}`}>Current Balance</p>
-                    <p className={`text-2xl font-black ${selectedLoanAccountId === account.id ? 'text-white' : 'text-indigo-600'}`}>
-                      Rs. {balance.toLocaleString()}
-                    </p>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
 
             <div className="lg:col-span-2">
-              {selectedLoanAccountId ? (
-                <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-right-4">
+              {selectedLoanAccountId && loanSummary ? (
+                <div className="bg-white rounded-[2.5rem] shadow-xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-right-4 flex flex-col h-full">
                   <div className="p-8 border-b bg-slate-50 flex justify-between items-center">
                     <div>
                       <h3 className="text-2xl font-black text-slate-900 tracking-tight">
-                        {data.loans.find(a => a.id === selectedLoanAccountId)?.name}
+                        {getSelectedLoanAccount()?.name}
                       </h3>
                       <p className="text-xs font-black text-slate-400 uppercase tracking-widest mt-1">Transaction History & Verification</p>
                     </div>
-                    <div className="text-right">
-                      <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Manual Opening Balance</label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">Rs.</span>
+                    <button onClick={() => setSelectedLoanAccountId(null)} className="text-slate-400 hover:text-slate-900 p-2">✕</button>
+                  </div>
+
+                  <div className="p-8 bg-white border-b flex flex-col md:flex-row gap-8 items-start justify-between">
+                    <div className="flex-1 w-full">
+                      <label className="block text-xs font-black text-indigo-600 uppercase tracking-widest mb-2">Manual Opening Balance</label>
+                      <div className="relative group">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-lg font-bold">Rs.</span>
                         <input 
                           type="number" 
-                          value={data.loans.find(a => a.id === selectedLoanAccountId)?.openingBalance || 0}
+                          value={getSelectedLoanAccount()?.openingBalance || 0}
                           onChange={(e) => handleUpdateLoanOpeningBalance(selectedLoanAccountId, Number(e.target.value))}
-                          className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl font-bold text-slate-700 focus:ring-2 focus:ring-indigo-100 outline-none w-40"
+                          className="pl-12 pr-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-2xl text-slate-800 focus:ring-4 focus:ring-indigo-50 outline-none w-full transition-all"
                         />
                       </div>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase mt-2 tracking-tighter">Enter the initial amount owed when tracking started</p>
                     </div>
                   </div>
-                  <div className="p-0">
+
+                  <div className="flex-1 overflow-auto">
                     <table className="w-full text-left border-collapse">
-                      <thead className="bg-slate-100">
+                      <thead className="bg-slate-50 sticky top-0 z-10 border-b">
                         <tr>
                           <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Date</th>
                           <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Description</th>
@@ -1248,14 +1063,14 @@ const App: React.FC = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {data.loans.find(a => a.id === selectedLoanAccountId)?.transactions.sort((a,b) => b.date.localeCompare(a.date)).map(tx => (
+                        {getSelectedLoanAccount()?.transactions.sort((a,b) => b.date.localeCompare(a.date)).map(tx => (
                           <tr key={tx.id} className="hover:bg-slate-50/50 transition-colors group">
-                            <td className="px-6 py-4 text-xs font-bold text-slate-400 whitespace-nowrap">
+                            <td className="px-6 py-4">
                               <input 
                                 type="date" 
                                 value={tx.date} 
                                 onChange={(e) => handleUpdateLoanTransaction(selectedLoanAccountId, tx.id, 'date', e.target.value)}
-                                className="bg-transparent border-none focus:ring-0 p-0 font-bold"
+                                className="bg-transparent border-none focus:ring-0 p-0 font-bold text-xs text-slate-500"
                               />
                             </td>
                             <td className="px-6 py-4">
@@ -1268,13 +1083,13 @@ const App: React.FC = () => {
                             <td className="px-6 py-4 text-center">
                               <button 
                                 onClick={() => handleUpdateLoanTransaction(selectedLoanAccountId, tx.id, 'type', tx.type === 'taken' ? 'repayment' : 'taken')}
-                                className={`text-[9px] font-black uppercase px-3 py-1.5 rounded-full transition-all ${
+                                className={`text-[9px] font-black uppercase px-3 py-1.5 rounded-full transition-all border ${
                                   tx.type === 'taken' 
-                                    ? 'bg-red-50 text-red-600 border border-red-100' 
-                                    : 'bg-green-50 text-green-600 border border-green-100'
+                                    ? 'bg-red-50 text-red-600 border-red-100' 
+                                    : 'bg-green-50 text-green-600 border-green-100'
                                 }`}
                               >
-                                {tx.type === 'taken' ? 'Loan Taken' : 'Repayment'}
+                                {tx.type === 'taken' ? 'Loan Taken (+)' : 'Repayment (-)'}
                               </button>
                             </td>
                             <td className="px-6 py-4">
@@ -1293,9 +1108,56 @@ const App: React.FC = () => {
                             </td>
                           </tr>
                         ))}
+                        {getSelectedLoanAccount()?.transactions.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="px-6 py-12 text-center text-slate-400 font-bold italic text-sm">No transactions yet. Add manually or upload a screenshot.</td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
+
+                  <div className="bg-slate-900 text-white p-8">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Opening Balance</p>
+                        <p className="text-xl font-black">Rs. {loanSummary.opening.toLocaleString()}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">Total Loans Taken</p>
+                        <p className="text-xl font-black">+ Rs. {loanSummary.totalTaken.toLocaleString()}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-black text-green-400 uppercase tracking-widest">Total Repayments</p>
+                        <p className="text-xl font-black">- Rs. {loanSummary.totalRepaid.toLocaleString()}</p>
+                      </div>
+                      <div className="space-y-1 bg-indigo-600 -m-4 p-4 rounded-xl shadow-lg border border-white/20">
+                        <p className="text-[10px] font-black text-white/70 uppercase tracking-widest">Final Closing Balance</p>
+                        <p className="text-2xl font-black">Rs. {loanSummary.closing.toLocaleString()}</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <button 
+                    onClick={() => {
+                      const accId = selectedLoanAccountId;
+                      if (!accId) return;
+                      const newTx: LoanTransaction = {
+                        id: `tx-${Date.now()}`,
+                        date: new Date().toISOString().split('T')[0],
+                        description: 'Manual Transaction',
+                        amount: 0,
+                        type: 'taken'
+                      };
+                      setData(prev => ({
+                        ...prev,
+                        loans: prev.loans.map(acc => acc.id === accId ? { ...acc, transactions: [...acc.transactions, newTx] } : acc)
+                      }));
+                    }}
+                    className="py-4 bg-slate-50 hover:bg-slate-100 text-slate-500 font-black text-xs uppercase tracking-widest border-t transition-colors"
+                  >
+                    + ADD MANUAL TRANSACTION
+                  </button>
                 </div>
               ) : (
                 <div className="h-full bg-white rounded-[2.5rem] border-2 border-dashed border-slate-200 flex flex-col items-center justify-center p-12 text-center text-slate-400">
