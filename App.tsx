@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   BudgetData, IncomeSource, ExpenseItem, OneTimePayment, SavingsEntry, SavingsWithdrawal, 
@@ -71,7 +72,7 @@ const SearchableCategoryDropdown: React.FC<{
           isOpen ? 'bg-white border-indigo-500 ring-2 ring-indigo-50' : 'bg-slate-50 border-slate-200 text-slate-700 hover:border-slate-300'
         }`}
       >
-        <span className="truncate">{currentLabel}</span>
+        <span className="truncate text-ellipsis">{currentLabel}</span>
         <span className={`transition-transform duration-200 text-slate-400 ${isOpen ? 'rotate-180' : ''}`}>▼</span>
       </button>
 
@@ -149,6 +150,19 @@ const App: React.FC = () => {
   const [isOcrLoading, setIsOcrLoading] = useState(false);
   const [showAuditBillId, setShowAuditBillId] = useState<string | null>(null);
   const [showBreakupSubId, setShowBreakupSubId] = useState<string | null>(null);
+  const [isManualBillModalOpen, setIsManualBillModalOpen] = useState(false);
+  
+  // Manual Bill Form State
+  const [manualBillData, setManualBillData] = useState<{
+    shopName: string;
+    date: string;
+    items: Array<Partial<GroceryBillItem>>;
+  }>({
+    shopName: '',
+    date: new Date().toISOString().split('T')[0],
+    items: [{ id: `m-item-${Date.now()}`, description: '', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }]
+  });
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loanFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -428,6 +442,63 @@ const App: React.FC = () => {
         groceryBills: prev.groceryBills.filter(b => b.id !== billId)
       }));
     }
+  };
+
+  const handleSaveManualBill = () => {
+    if (!manualBillData.shopName || manualBillData.items.length === 0) {
+      alert("Please enter a shop name and at least one item.");
+      return;
+    }
+
+    const totalAmount = manualBillData.items.reduce((sum, item) => sum + (Number(item.totalCost) || 0), 0);
+    
+    const newBill: GroceryBill = {
+      id: `bill-${Date.now()}`,
+      shopName: manualBillData.shopName,
+      date: manualBillData.date,
+      totalAmount,
+      items: manualBillData.items.map(item => ({
+        id: item.id || `m-item-${Math.random()}`,
+        description: item.description || 'Unnamed Item',
+        quantity: Number(item.quantity) || 1,
+        unit: item.unit || 'unit',
+        unitCost: (Number(item.totalCost) || 0) / (Number(item.quantity) || 1),
+        totalCost: Number(item.totalCost) || 0,
+        categoryId: item.categoryId || 'unassigned',
+        subCategoryId: item.subCategoryId || 'unassigned'
+      }))
+    };
+
+    setData(prev => ({ ...prev, groceryBills: [newBill, ...prev.groceryBills] }));
+    setIsManualBillModalOpen(false);
+    setGrocerySubTab('bills');
+    // Reset form
+    setManualBillData({
+      shopName: '',
+      date: new Date().toISOString().split('T')[0],
+      items: [{ id: `m-item-${Date.now()}`, description: '', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }]
+    });
+  };
+
+  const handleAddManualItem = () => {
+    setManualBillData(prev => ({
+      ...prev,
+      items: [...prev.items, { id: `m-item-${Date.now()}`, description: '', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }]
+    }));
+  };
+
+  const handleUpdateManualItem = (id: string, field: keyof GroceryBillItem, value: any) => {
+    setManualBillData(prev => ({
+      ...prev,
+      items: prev.items.map(item => item.id === id ? { ...item, [field]: value } : item)
+    }));
+  };
+
+  const handleRemoveManualItem = (id: string) => {
+    setManualBillData(prev => ({
+      ...prev,
+      items: prev.items.filter(item => item.id !== id)
+    }));
   };
 
   const handleLoanFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, targetAccountId?: string) => {
@@ -841,6 +912,12 @@ const App: React.FC = () => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">Grocery Tracker</h2>
             <div className="flex gap-3">
+              <button 
+                onClick={() => setIsManualBillModalOpen(true)}
+                className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-indigo-100 transition-all hover:scale-105 active:scale-95"
+              >
+                <span className="text-xl">✍️</span> Add Bill Manually
+              </button>
               <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
               <button 
                 onClick={() => fileInputRef.current?.click()}
@@ -977,7 +1054,7 @@ const App: React.FC = () => {
                           {bill.imageUrl ? (
                             <img src={bill.imageUrl} className="w-full h-full object-cover opacity-60 grayscale group-hover:grayscale-0 transition-all duration-500" />
                           ) : (
-                            <div className="flex items-center justify-center h-full text-slate-300 font-bold">No Image</div>
+                            <div className="flex items-center justify-center h-full text-slate-300 font-bold bg-slate-200 text-6xl">🧾</div>
                           )}
                           <div className="absolute inset-0 p-4 flex flex-col justify-end bg-gradient-to-t from-black/60 to-transparent">
                             <h4 className="text-white font-black text-lg">{bill.shopName}</h4>
@@ -1314,108 +1391,125 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {activeTab === 'onetime' && (
-        <div className="space-y-8 animate-in fade-in duration-300">
-           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <h2 className="text-3xl font-black text-slate-900 tracking-tight">One-Time Commitments</h2>
-          </div>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
-            <table className="w-full text-left border-collapse">
-              <thead className="bg-slate-900 text-white text-[10px] font-black uppercase">
-                <tr>
-                  <th className="px-6 py-4">Goal</th>
-                  <th className="px-6 py-4">Target (Rs.)</th>
-                  <th className="px-6 py-4">Paid (Rs.)</th>
-                  <th className="px-6 py-4">Due</th>
-                  <th className="px-6 py-4">Progress</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.oneTimePayments.map(item => {
-                  const progress = Number(item.totalAmount) > 0 ? Math.min(100, (Number(item.paidAmount) / Number(item.totalAmount)) * 100) : 0;
-                  return (
-                    <tr key={item.id} className="hover:bg-blue-50/20 transition-colors">
-                      <td className="px-6 py-4 font-bold text-sm">
-                        <input value={item.title} onChange={(e) => handleUpdateOneTime(item.id, 'title', e.target.value)} className="bg-transparent border-none p-0 w-full" />
-                      </td>
-                      <td className="px-6 py-4">
-                        <input type="number" value={item.totalAmount} onChange={(e) => handleUpdateOneTime(item.id, 'totalAmount', Number(e.target.value))} className="bg-slate-50 border border-slate-100 rounded px-2 py-1 w-28 font-bold" />
-                      </td>
-                      <td className="px-6 py-4">
-                        <input type="number" value={item.paidAmount} onChange={(e) => handleUpdateOneTime(item.id, 'paidAmount', Number(e.target.value))} className="bg-green-50 border border-green-100 text-green-700 rounded px-2 py-1 w-28 font-bold" />
-                      </td>
-                      <td className="px-6 py-4">
-                         <input type="date" value={item.dueDate} onChange={(e) => handleUpdateOneTime(item.id, 'dueDate', e.target.value)} className="bg-transparent border-none p-0 text-xs font-bold" />
-                      </td>
-                      <td className="px-6 py-4 min-w-[120px]">
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
-                            <div className="bg-blue-600 h-full rounded-full" style={{ width: `${progress}%` }}></div>
-                          </div>
-                          <span className="text-[10px] font-black">{progress.toFixed(0)}%</span>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'savings' && (
-        <div className="space-y-8 animate-in fade-in duration-300">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Savings</h2>
-            <div className="flex gap-4">
-              <div className="bg-indigo-50 px-4 py-2 rounded-xl border border-indigo-100">
-                 <span className="text-[10px] font-black text-indigo-400 block">Total Balance</span>
-                 <span className="text-lg font-black text-indigo-700">Rs. {totals.savingsBalance.toLocaleString()}</span>
+      {/* MANUAL BILL MODAL */}
+      {isManualBillModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[80] flex items-center justify-center p-4">
+           <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
+              <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+                <div>
+                  <h3 className="text-2xl font-black text-slate-900 tracking-tight">Manual Bill Entry</h3>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Directly record your grocery spending</p>
+                </div>
+                <button onClick={() => setIsManualBillModalOpen(false)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
               </div>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-             <div className="space-y-4">
-                <h3 className="font-bold text-indigo-700">Additions</h3>
-                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                   <table className="w-full text-left text-sm">
-                      <thead className="bg-indigo-500 text-white text-[10px] font-black uppercase">
-                        <tr><th className="px-4 py-2">Date</th><th className="px-4 py-2">Amount</th></tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {data.savings.additions.map(a => (
-                          <tr key={a.id}>
-                            <td className="px-4 py-2 text-xs font-bold text-slate-500">{a.date}</td>
-                            <td className="px-4 py-2 font-black text-indigo-600">Rs. {a.amount.toLocaleString()}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                   </table>
-                   <button onClick={handleAddSavingsAddition} className="w-full py-2 bg-indigo-50 text-indigo-700 text-xs font-black uppercase transition-colors">+ Add Deposit</button>
+              <div className="flex-1 overflow-auto p-8">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Shop / Merchant Name</label>
+                    <input 
+                      type="text"
+                      placeholder="e.g. Keells Super, Arpico, Local Market"
+                      value={manualBillData.shopName}
+                      onChange={(e) => setManualBillData(prev => ({ ...prev, shopName: e.target.value }))}
+                      className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-800 focus:ring-4 focus:ring-indigo-50 focus:border-indigo-500 outline-none transition-all"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Purchase Date</label>
+                    <input 
+                      type="date"
+                      value={manualBillData.date}
+                      onChange={(e) => setManualBillData(prev => ({ ...prev, date: e.target.value }))}
+                      className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold text-slate-800 focus:ring-4 focus:ring-indigo-50 focus:border-indigo-500 outline-none transition-all"
+                    />
+                  </div>
                 </div>
-             </div>
-             <div className="space-y-4">
-                <h3 className="font-bold text-orange-700">Withdrawals</h3>
-                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                   <table className="w-full text-left text-sm">
-                      <thead className="bg-orange-500 text-white text-[10px] font-black uppercase">
-                        <tr><th className="px-4 py-2">Date</th><th className="px-4 py-2">Reason</th><th className="px-4 py-2">Amount</th></tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {data.savings.withdrawals.map(w => (
-                          <tr key={w.id}>
-                            <td className="px-4 py-2 text-xs font-bold text-slate-500">{w.date}</td>
-                            <td className="px-4 py-2 font-semibold text-slate-700">{w.reason}</td>
-                            <td className="px-4 py-2 font-black text-orange-600">Rs. {w.amount.toLocaleString()}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                   </table>
-                   <button onClick={handleAddSavingsWithdrawal} className="w-full py-2 bg-orange-50 text-orange-700 text-xs font-black uppercase transition-colors">+ Add Withdrawal</button>
+
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center border-b pb-3 mb-2">
+                    <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Bill Items</h4>
+                    <button 
+                      onClick={handleAddManualItem}
+                      className="text-indigo-600 text-xs font-black uppercase hover:text-indigo-800"
+                    >
+                      + Add Item Row
+                    </button>
+                  </div>
+                  <div className="space-y-3">
+                    {manualBillData.items.map((item, index) => (
+                      <div key={item.id} className="grid grid-cols-12 gap-3 items-center bg-slate-50/50 p-3 rounded-2xl border border-slate-100 group">
+                        <div className="col-span-4 space-y-1">
+                          <input 
+                            placeholder="Description (e.g. Milk, Eggs)"
+                            value={item.description}
+                            onChange={(e) => handleUpdateManualItem(item.id!, 'description', e.target.value)}
+                            className="w-full bg-white border-none rounded-lg text-sm font-bold p-2 focus:ring-2 focus:ring-indigo-100"
+                          />
+                        </div>
+                        <div className="col-span-1 space-y-1">
+                          <input 
+                            type="number"
+                            placeholder="Qty"
+                            value={item.quantity}
+                            onChange={(e) => handleUpdateManualItem(item.id!, 'quantity', Number(e.target.value))}
+                            className="w-full bg-white border-none rounded-lg text-sm font-bold p-2 focus:ring-2 focus:ring-indigo-100 text-center"
+                          />
+                        </div>
+                        <div className="col-span-2 space-y-1">
+                           <SearchableCategoryDropdown 
+                             placeholder="Categorize"
+                             currentValue={`${item.categoryId}|${item.subCategoryId}`}
+                             categories={data.groceryCategories}
+                             onSelect={(catId, subCatId) => {
+                               handleUpdateManualItem(item.id!, 'categoryId', catId);
+                               handleUpdateManualItem(item.id!, 'subCategoryId', subCatId);
+                             }}
+                           />
+                        </div>
+                        <div className="col-span-4 space-y-1">
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 font-bold text-[10px]">Rs.</span>
+                            <input 
+                              type="number"
+                              placeholder="Total Cost"
+                              value={item.totalCost}
+                              onChange={(e) => handleUpdateManualItem(item.id!, 'totalCost', Number(e.target.value))}
+                              className="w-full bg-white border-none rounded-lg text-sm font-black p-2 pl-9 focus:ring-2 focus:ring-indigo-100 text-right"
+                            />
+                          </div>
+                        </div>
+                        <div className="col-span-1 text-right">
+                          <button 
+                            onClick={() => handleRemoveManualItem(item.id!)}
+                            className="text-slate-300 hover:text-red-500 p-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-             </div>
-          </div>
+              </div>
+              <div className="p-8 bg-slate-50 border-t flex flex-col md:flex-row justify-between items-center gap-6">
+                 <div>
+                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block">Estimated Bill Total</span>
+                   <span className="text-3xl font-black text-slate-900">Rs. {manualBillData.items.reduce((s, i) => s + (Number(i.totalCost) || 0), 0).toLocaleString()}</span>
+                 </div>
+                 <div className="flex gap-4">
+                    <button 
+                      onClick={() => setIsManualBillModalOpen(false)}
+                      className="px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest text-slate-500 hover:bg-slate-100 transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button 
+                      onClick={handleSaveManualBill}
+                      className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-100 transition-all transform active:scale-95"
+                    >
+                      Save Manual Bill
+                    </button>
+                 </div>
+              </div>
+           </div>
         </div>
       )}
 
@@ -1472,11 +1566,15 @@ const App: React.FC = () => {
               <button onClick={() => setShowAuditBillId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
             </div>
             <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-2 gap-10">
-                <div className="rounded-3xl border-2 border-slate-100 overflow-hidden">
-                  <img src={data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrl} className="w-full" alt="Receipt" />
+                <div className="rounded-3xl border-2 border-slate-100 overflow-hidden min-h-[300px] flex items-center justify-center bg-slate-100">
+                  {data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrl ? (
+                    <img src={data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrl} className="w-full" alt="Receipt" />
+                  ) : (
+                    <div className="text-6xl">✍️</div>
+                  )}
                 </div>
                 <div>
-                  <h4 className="text-xs font-black text-slate-500 uppercase mb-4 tracking-widest">Extracted Items</h4>
+                  <h4 className="text-xs font-black text-slate-500 uppercase mb-4 tracking-widest">Bill Items</h4>
                   <div className="space-y-2">
                     {data.groceryBills.find(b => b.id === showAuditBillId)?.items.map(item => (
                       <div key={item.id} className="p-3 bg-slate-50 rounded-xl flex justify-between items-center">
