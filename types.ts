@@ -118,7 +118,7 @@ export interface GroceryBill {
   date: string;
   shopName: string;
   items: GroceryBillItem[];
-  imageUrl?: string;
+  imageUrls?: string[];
   totalAmount: number;
   isVerified?: boolean;
 }

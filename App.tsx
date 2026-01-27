@@ -313,48 +313,64 @@ const App: React.FC = () => {
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    // Explicitly cast to File[] to avoid 'unknown' type issues in map callbacks
+    const files = Array.from(e.target.files || []) as File[];
+    if (files.length === 0) return;
+    
     setIsOcrLoading(true);
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const base64 = event.target?.result as string;
-      try {
-        const result = await processGroceryBill(base64, data.groceryCategories, data.mappingOverrides);
-        const newBill: GroceryBill = {
-          id: `bill-ocr-${Date.now()}`,
-          date: result.date || new Date().toISOString().split('T')[0],
-          shopName: result.shopName || 'Unknown Shop',
-          imageUrl: base64,
-          totalAmount: result.items.reduce((s: number, i: any) => s + Number(i.totalCost), 0),
-          isVerified: false,
-          items: result.items.map((i: any) => {
-            const cat = data.groceryCategories.find(c => c.name === i.categoryName);
-            const sub = cat?.subCategories.find(s => s.name === i.subCategoryName);
-            return {
-              id: `item-${Math.random()}`,
-              description: i.description, quantity: Number(i.quantity), unit: i.unit,
-              unitCost: Number(i.unitCost), totalCost: Number(i.totalCost),
-              categoryId: cat?.id || 'unassigned', subCategoryId: sub?.id || 'unassigned'
-            };
-          })
-        };
-        setData(prev => ({ ...prev, groceryBills: [newBill, ...prev.groceryBills] }));
-        setGrocerySubTab('bills');
-      } catch (err) { alert("OCR Failed."); } finally { setIsOcrLoading(false); e.target.value = ''; }
-    };
-    reader.readAsDataURL(file);
+    
+    try {
+      const base64Images = await Promise.all(files.map((file: File) => {
+        return new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve(ev.target?.result as string);
+          // file is now correctly typed as File (which extends Blob)
+          reader.readAsDataURL(file);
+        });
+      }));
+
+      const result = await processGroceryBill(base64Images, data.groceryCategories, data.mappingOverrides || {});
+      
+      const newBill: GroceryBill = {
+        id: `bill-ocr-${Date.now()}`,
+        date: result.date || new Date().toISOString().split('T')[0],
+        shopName: result.shopName || 'Unknown Shop',
+        imageUrls: base64Images,
+        totalAmount: result.items.reduce((s: number, i: any) => s + Number(i.totalCost), 0),
+        isVerified: false,
+        items: result.items.map((i: any) => {
+          const cat = data.groceryCategories.find(c => c.name === i.categoryName);
+          const sub = cat?.subCategories.find(s => s.name === i.subCategoryName);
+          return {
+            id: `item-${Math.random()}`,
+            description: i.description, quantity: Number(i.quantity), unit: i.unit,
+            unitCost: Number(i.unitCost), totalCost: Number(i.totalCost),
+            categoryId: cat?.id || 'unassigned', subCategoryId: sub?.id || 'unassigned'
+          };
+        })
+      };
+      
+      setData(prev => ({ ...prev, groceryBills: [newBill, ...prev.groceryBills] }));
+      setGrocerySubTab('bills');
+    } catch (err) { 
+      alert("OCR Failed. Please try with clearer images."); 
+      console.error(err);
+    } finally { 
+      setIsOcrLoading(false); 
+      e.target.value = ''; 
+    }
   };
 
   const handleCategorizeItem = (billId: string, itemId: string, catId: string, subCatId: string) => {
     const cat = data.groceryCategories.find(c => c.id === catId);
     const sub = cat?.subCategories.find(s => s.id === subCatId);
-    const bill = data.groceryBills.find(b => b.id === billId);
-    const item = bill?.items.find(i => i.id === itemId);
-    const rawDesc = item?.rawDescription || item?.description;
-
+    
     setData(prev => {
-      const newOverrides = { ...prev.mappingOverrides };
+      const bill = prev.groceryBills.find(b => b.id === billId);
+      const item = bill?.items.find(i => i.id === itemId);
+      const rawDesc = item?.rawDescription || item?.description;
+      
+      const newOverrides = { ...(prev.mappingOverrides || {}) };
       if (rawDesc && cat && sub) {
         newOverrides[rawDesc] = { categoryName: cat.name, subCategoryName: sub.name };
       }
@@ -488,9 +504,9 @@ const App: React.FC = () => {
               <button onClick={() => setIsManualBillModalOpen(true)} className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-indigo-100 transition-all hover:scale-105 active:scale-95">
                 <span className="text-xl">✍️</span> Add Bill Manually
               </button>
-              <input type="file" accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+              <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
               <button onClick={() => fileInputRef.current?.click()} disabled={isOcrLoading} className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-100 transition-all hover:scale-105 active:scale-95">
-                {isOcrLoading ? <><span className="animate-spin text-xl">🌀</span> Scanning...</> : <><span className="text-xl">📷</span> Capture Bill</>}
+                {isOcrLoading ? <><span className="animate-spin text-xl">🌀</span> Scanning...</> : <><span className="text-xl">📷</span> Capture Bill(s)</>}
               </button>
             </div>
           </div>
@@ -596,8 +612,15 @@ const App: React.FC = () => {
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                       </button>
                       <div className="relative h-40 bg-slate-100">
-                        {bill.imageUrl ? (
-                          <img src={bill.imageUrl} className={`w-full h-full object-cover transition-all ${bill.isVerified ? 'grayscale-0' : 'grayscale'}`} />
+                        {bill.imageUrls && bill.imageUrls.length > 0 ? (
+                          <div className="relative w-full h-full">
+                            <img src={bill.imageUrls[0]} className={`w-full h-full object-cover transition-all ${bill.isVerified ? 'grayscale-0' : 'grayscale'}`} />
+                            {bill.imageUrls.length > 1 && (
+                              <div className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] font-black px-2 py-1 rounded-md backdrop-blur-sm border border-white/20">
+                                +{bill.imageUrls.length - 1} more
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <div className="flex items-center justify-center h-full text-slate-300 font-bold bg-slate-200 text-6xl">✍️</div>
                         )}
@@ -690,11 +713,11 @@ const App: React.FC = () => {
 
       {showBreakupSubId && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[90] flex items-center justify-center p-4">
-           <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
+           <div className="bg-white rounded-[2.5rem] w-full max-w-6xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
               <div className="p-8 border-b flex justify-between items-center bg-slate-50">
                 <div>
-                  <h3 className="text-2xl font-black text-slate-900 tracking-tight">Breakdown View</h3>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Detailed history for selected item type</p>
+                  <h3 className="text-2xl font-black text-slate-900 tracking-tight">Categorized Items Breakdown</h3>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Review and reassign spend for this category</p>
                 </div>
                 <button onClick={() => setShowBreakupSubId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
               </div>
@@ -702,10 +725,11 @@ const App: React.FC = () => {
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-slate-100 sticky top-0 z-10">
                     <tr>
-                      <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Date</th>
-                      <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Shop</th>
-                      <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Item Description</th>
-                      <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">Cost (Rs.)</th>
+                      <th className="px-4 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Date</th>
+                      <th className="px-4 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Shop</th>
+                      <th className="px-4 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Item Description</th>
+                      <th className="px-4 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Cost (Rs.)</th>
+                      <th className="px-4 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest w-64">Move To</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -715,7 +739,14 @@ const App: React.FC = () => {
                           <td className="px-4 py-4 text-xs font-bold text-slate-400">{bill.date}</td>
                           <td className="px-4 py-4 text-sm font-black text-slate-700">{bill.shopName}</td>
                           <td className="px-4 py-4 text-sm font-medium text-slate-600 italic">"{item.description}"</td>
-                          <td className="px-4 py-4 text-sm font-black text-indigo-700 text-right">Rs. {Number(item.totalCost).toLocaleString()}</td>
+                          <td className="px-4 py-4 text-sm font-black text-indigo-700">Rs. {Number(item.totalCost).toLocaleString()}</td>
+                          <td className="px-4 py-4">
+                            <SearchableCategoryDropdown 
+                              currentValue={`${item.categoryId}|${item.subCategoryId}`}
+                              categories={data.groceryCategories}
+                              onSelect={(catId, subCatId) => handleCategorizeItem(bill.id, item.id, catId, subCatId)}
+                            />
+                          </td>
                         </tr>
                       ))
                     )}
@@ -734,14 +765,33 @@ const App: React.FC = () => {
               <button onClick={() => setShowAuditBillId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
             </div>
             <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-2 gap-10">
-              <div className="rounded-3xl border-2 border-slate-100 overflow-hidden min-h-[300px] flex items-center justify-center bg-slate-100">
-                {data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrl ? <img src={data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrl} className="w-full" alt="Receipt" /> : <div className="text-6xl">✍️</div>}
+              <div className="space-y-6">
+                <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Attached Screenshots</h4>
+                <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                  {data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls?.map((url, i) => (
+                    <div key={i} className="rounded-2xl border-2 border-slate-100 overflow-hidden shadow-sm bg-slate-100">
+                      <img src={url} className="w-full" alt={`Receipt part ${i + 1}`} />
+                    </div>
+                  ))}
+                  {(!data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls || data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls?.length === 0) && (
+                    <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl h-64 flex flex-col items-center justify-center text-slate-300">
+                      <div className="text-5xl mb-2">✍️</div>
+                      <p className="font-black text-xs uppercase">Manual Entry (No Photo)</p>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="space-y-4">
                 <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Extracted Items</h4>
-                <div className="space-y-2">
+                <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
                   {data.groceryBills.find(b => b.id === showAuditBillId)?.items.map(item => (
-                    <div key={item.id} className="p-3 bg-slate-50 rounded-xl flex justify-between items-center"><span className="text-sm font-bold text-slate-700">{item.description}</span><span className="text-sm font-black text-indigo-600">Rs. {item.totalCost.toLocaleString()}</span></div>
+                    <div key={item.id} className="p-3 bg-slate-50 rounded-xl flex justify-between items-center">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold text-slate-700">{item.description}</span>
+                        <span className="text-[10px] font-medium text-slate-400">Qty: {item.quantity} {item.unit} @ Rs. {item.unitCost.toLocaleString()}</span>
+                      </div>
+                      <span className="text-sm font-black text-indigo-600">Rs. {item.totalCost.toLocaleString()}</span>
+                    </div>
                   ))}
                 </div>
               </div>

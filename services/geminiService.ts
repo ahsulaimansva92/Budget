@@ -3,6 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { BudgetData, GroceryCategory, CategoryOverride } from "../types";
 
 export const analyzeBudget = async (data: BudgetData): Promise<string> => {
+  // Always use a named parameter for apiKey and obtain it from process.env.API_KEY
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
@@ -15,10 +16,12 @@ export const analyzeBudget = async (data: BudgetData): Promise<string> => {
   `;
 
   try {
+    // Use gemini-3-flash-preview for basic text tasks like summarization and Q&A
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
+    // Use .text property directly, it's not a method
     return response.text || "Could not generate insights.";
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
@@ -27,10 +30,11 @@ export const analyzeBudget = async (data: BudgetData): Promise<string> => {
 };
 
 export const processGroceryBill = async (
-  base64Image: string, 
+  base64Images: string[], 
   categories: GroceryCategory[], 
   overrides: Record<string, CategoryOverride> = {}
 ): Promise<any> => {
+  // Obtain API key from environment variable
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const categoryContext = categories.map(c => 
@@ -42,7 +46,7 @@ export const processGroceryBill = async (
     : "";
 
   const prompt = `
-    Analyze this grocery bill image. Extract all items.
+    Analyze these grocery bill image(s). They may be multiple screenshots of the same long bill. Extract all items across all images.
     For each item, determine its category and subcategory based on this list:
     ${categoryContext}
     
@@ -63,13 +67,21 @@ export const processGroceryBill = async (
       - subCategoryName (matching one from the list)
   `;
 
+  const imageParts = base64Images.map(img => ({
+    inlineData: { 
+      mimeType: "image/jpeg", 
+      data: img.split(',')[1] || img 
+    }
+  }));
+
   try {
+    // Use gemini-3-pro-preview for complex reasoning tasks like multimodal OCR and categorization
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: {
         parts: [
           { text: prompt },
-          { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] || base64Image } }
+          ...imageParts
         ]
       },
       config: {
@@ -91,10 +103,12 @@ export const processGroceryBill = async (
                   totalCost: { type: Type.NUMBER },
                   categoryName: { type: Type.STRING },
                   subCategoryName: { type: Type.STRING },
-                }
+                },
+                propertyOrdering: ["description", "quantity", "unit", "unitCost", "totalCost", "categoryName", "subCategoryName"],
               }
             }
-          }
+          },
+          propertyOrdering: ["shopName", "date", "items"],
         }
       }
     });
@@ -122,8 +136,9 @@ export const processLoanScreenshot = async (base64Image: string): Promise<any> =
   `;
 
   try {
+    // Use gemini-3-pro-preview for complex text and visual analysis
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: {
         parts: [
           { text: prompt },
@@ -144,7 +159,8 @@ export const processLoanScreenshot = async (base64Image: string): Promise<any> =
                   description: { type: Type.STRING },
                   amount: { type: Type.NUMBER },
                   suggestedAccount: { type: Type.STRING, description: "Group transactions into logical account names" },
-                }
+                },
+                propertyOrdering: ["date", "description", "amount", "suggestedAccount"],
               }
             }
           }
