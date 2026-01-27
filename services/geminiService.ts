@@ -3,6 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { BudgetData, GroceryCategory, CategoryOverride } from "../types";
 
 export const analyzeBudget = async (data: BudgetData): Promise<string> => {
+  // Always use a named parameter for apiKey and obtain it from process.env.API_KEY
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
@@ -15,65 +16,16 @@ export const analyzeBudget = async (data: BudgetData): Promise<string> => {
   `;
 
   try {
+    // Use gemini-3-flash-preview for basic text tasks like summarization and Q&A
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
+    // Use .text property directly, it's not a method
     return response.text || "Could not generate insights.";
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
     return "AI Analysis temporarily unavailable.";
-  }
-};
-
-export const processGeneralBill = async (base64Images: string[]): Promise<any> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  const prompt = `
-    Follow this two-step reasoning flow:
-    1. INTERNAL TRANSCRIPTION: Process the image(s) and convert all visible text into a clean, structured internal table. 
-    2. DATA EXTRACTION: From that internal table, fetch: merchantName, date (YYYY-MM-DD), total amount (number), and a short summary.
-    
-    If the photo is unclear, use neighboring context and common merchant patterns to infer missing characters.
-    Return the result as a JSON object.
-  `;
-
-  const imageParts = base64Images.map(img => ({
-    inlineData: { 
-      mimeType: "image/jpeg", 
-      data: img.split(',')[1] || img 
-    }
-  }));
-
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: {
-        parts: [
-          { text: prompt },
-          ...imageParts
-        ]
-      },
-      config: {
-        thinkingConfig: { thinkingBudget: 2000 },
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            merchantName: { type: Type.STRING },
-            date: { type: Type.STRING },
-            amount: { type: Type.NUMBER },
-            summary: { type: Type.STRING },
-          },
-          propertyOrdering: ["merchantName", "date", "amount", "summary"],
-        }
-      }
-    });
-
-    return JSON.parse(response.text || '{}');
-  } catch (error) {
-    console.error("General Bill OCR Error:", error);
-    throw error;
   }
 };
 
@@ -82,6 +34,7 @@ export const processGroceryBill = async (
   categories: GroceryCategory[], 
   overrides: Record<string, CategoryOverride> = {}
 ): Promise<any> => {
+  // Obtain API key from environment variable
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const categoryContext = categories.map(c => 
@@ -89,28 +42,29 @@ export const processGroceryBill = async (
   ).join('\n');
 
   const overrideContext = Object.entries(overrides).length > 0 
-    ? `USER PREFERENCES:\n${Object.entries(overrides).map(([desc, ov]) => `- "${desc}" is ${ov.categoryName} -> ${ov.subCategoryName}`).join('\n')}`
+    ? `USER PREFERENCES (Follow these strictly if you see these items again):\n${Object.entries(overrides).map(([desc, ov]) => `- "${desc}" should be ${ov.categoryName} -> ${ov.subCategoryName}`).join('\n')}`
     : "";
 
   const prompt = `
-    Perform high-precision data capture following this sequence:
-    
-    STEP 1: INTERNAL TRANSCRIPTION
-    Convert the grocery bill image(s) into a clean, structured mental table. Identify every row and column (Description, Qty, Unit Price, Total). 
-    If text is blurry, use common grocery patterns (e.g., 'BANA' = Banana, 'COCO OIL' = Coconut Oil) and mathematical deduction (Total / Qty = Unit Price) to reconstruct the data.
-
-    STEP 2: STRUCTURED EXTRACTION
-    From your internal table, fetch the item names, quantities, unit prices, and total amounts. 
-    Map each item to these categories:
+    Analyze these grocery bill image(s). They may be multiple screenshots of the same long bill. Extract all items across all images.
+    For each item, determine its category and subcategory based on this list:
     ${categoryContext}
     
-    Respect these overrides:
     ${overrideContext}
     
-    Return a final JSON object:
+    CRITICAL: If an item is similar to one in the USER PREFERENCES, use the specified category/subcategory.
+    
+    Return a JSON object with:
     - shopName (string)
-    - date (YYYY-MM-DD)
-    - items (array: {description, quantity, unit, unitCost, totalCost, categoryName, subCategoryName})
+    - date (string, YYYY-MM-DD)
+    - items (array):
+      - description (string)
+      - quantity (number)
+      - unit (string, e.g., kg, g, pkt, unit)
+      - unitCost (number)
+      - totalCost (number)
+      - categoryName (matching one from the list)
+      - subCategoryName (matching one from the list)
   `;
 
   const imageParts = base64Images.map(img => ({
@@ -121,6 +75,7 @@ export const processGroceryBill = async (
   }));
 
   try {
+    // Use gemini-3-pro-preview for complex reasoning tasks like multimodal OCR and categorization
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: {
@@ -130,7 +85,6 @@ export const processGroceryBill = async (
         ]
       },
       config: {
-        thinkingConfig: { thinkingBudget: 2500 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -150,9 +104,11 @@ export const processGroceryBill = async (
                   categoryName: { type: Type.STRING },
                   subCategoryName: { type: Type.STRING },
                 },
+                propertyOrdering: ["description", "quantity", "unit", "unitCost", "totalCost", "categoryName", "subCategoryName"],
               }
             }
-          }
+          },
+          propertyOrdering: ["shopName", "date", "items"],
         }
       }
     });
@@ -166,13 +122,21 @@ export const processGroceryBill = async (
 
 export const processLoanScreenshot = async (base64Image: string): Promise<any> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
   const prompt = `
-    1. Internally transcribe the financial screenshot into a clean table of transactions.
-    2. Fetch the date, description, amount, and suggest a logical account name for each row.
-    Return JSON {transactions: [...]}.
+    Analyze this screenshot containing financial loan or repayment transactions.
+    Extract every individual transaction found.
+    For each transaction, determine:
+    1. Date (YYYY-MM-DD)
+    2. Description/Reason (Be descriptive)
+    3. Amount (number)
+    4. Logical Account Name (Group similar transactions by their likely purpose or creditor name)
+
+    Return a JSON object containing an array of 'transactions'.
   `;
 
   try {
+    // Use gemini-3-pro-preview for complex text and visual analysis
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: {
@@ -182,7 +146,6 @@ export const processLoanScreenshot = async (base64Image: string): Promise<any> =
         ]
       },
       config: {
-        thinkingConfig: { thinkingBudget: 1500 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -195,8 +158,9 @@ export const processLoanScreenshot = async (base64Image: string): Promise<any> =
                   date: { type: Type.STRING },
                   description: { type: Type.STRING },
                   amount: { type: Type.NUMBER },
-                  suggestedAccount: { type: Type.STRING },
-                }
+                  suggestedAccount: { type: Type.STRING, description: "Group transactions into logical account names" },
+                },
+                propertyOrdering: ["date", "description", "amount", "suggestedAccount"],
               }
             }
           }
