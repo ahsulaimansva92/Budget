@@ -30,17 +30,8 @@ export const processGeneralBill = async (base64Images: string[]): Promise<any> =
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
-    Analyze these bill/receipt image(s). They might be utility bills, invoices, or simple retail receipts.
-    Note: Images may be slightly blurry or unclear. Use logic and context to infer details.
-    Extract the following information:
-    - merchantName (e.g., CEB, Water Board, Shop name)
-    - date (YYYY-MM-DD)
-    - amount (number)
-    - type (one of: 'recurring_expense', 'one_time_payment', 'income')
-    - confidence (0-1 score)
-    - summary (a short description of the bill)
-
-    Return a JSON object.
+    Analyze these bill image(s). Extract merchantName, date (YYYY-MM-DD), amount (number), and a short summary.
+    If blurry, use context logic.
   `;
 
   const imageParts = base64Images.map(img => ({
@@ -60,7 +51,7 @@ export const processGeneralBill = async (base64Images: string[]): Promise<any> =
         ]
       },
       config: {
-        thinkingConfig: { thinkingBudget: 2000 },
+        thinkingConfig: { thinkingBudget: 1000 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -68,11 +59,9 @@ export const processGeneralBill = async (base64Images: string[]): Promise<any> =
             merchantName: { type: Type.STRING },
             date: { type: Type.STRING },
             amount: { type: Type.NUMBER },
-            type: { type: Type.STRING },
-            confidence: { type: Type.NUMBER },
             summary: { type: Type.STRING },
           },
-          propertyOrdering: ["merchantName", "date", "amount", "type", "confidence", "summary"],
+          propertyOrdering: ["merchantName", "date", "amount", "summary"],
         }
       }
     });
@@ -96,36 +85,21 @@ export const processGroceryBill = async (
   ).join('\n');
 
   const overrideContext = Object.entries(overrides).length > 0 
-    ? `USER PREFERENCES (Follow these strictly if you see these items again):\n${Object.entries(overrides).map(([desc, ov]) => `- "${desc}" should be ${ov.categoryName} -> ${ov.subCategoryName}`).join('\n')}`
+    ? `USER PREFERENCES:\n${Object.entries(overrides).map(([desc, ov]) => `- "${desc}" is ${ov.categoryName} -> ${ov.subCategoryName}`).join('\n')}`
     : "";
 
   const prompt = `
-    Analyze these grocery bill image(s). 
-    CRITICAL: Some images may be blurry, low-resolution, or taken in low light. 
-    Use your advanced visual reasoning to:
-    1. RECONSTRUCT BLURRY TEXT: If an item name is pixelated, use grocery patterns (e.g., 'CHKN' is likely Chicken, 'TMTO' is Tomato) to reconstruct the full name.
-    2. MATHEMATICAL VALIDATION: Ensure (quantity * unitCost = totalCost). If one of these numbers is unclear, use the other two to mathematically infer the missing value.
-    3. CROSS-REFERENCE: If multiple photos are provided, piece together fragments from overlapping areas.
-    4. PARTIAL DATA: If you absolutely cannot read an item name, provide your best logical guess (e.g., "Unknown Fruit" if it looks like a fruit weight).
-
-    For each item, determine its category and subcategory based on this list:
+    Extract data from these grocery bill images.
+    - If blurry, reconstruct names logicially (e.g. 'TMTO' -> Tomato).
+    - Validate: qty * unitCost = totalCost.
+    - Categorize items based on:
     ${categoryContext}
-    
     ${overrideContext}
     
-    CRITICAL: If an item is similar to one in the USER PREFERENCES, use the specified category/subcategory.
-    
-    Return a JSON object with:
+    Return JSON:
     - shopName (string)
-    - date (string, YYYY-MM-DD)
-    - items (array):
-      - description (string)
-      - quantity (number)
-      - unit (string, e.g., kg, g, pkt, unit)
-      - unitCost (number)
-      - totalCost (number)
-      - categoryName (matching one from the list)
-      - subCategoryName (matching one from the list)
+    - date (YYYY-MM-DD)
+    - items (array of {description, quantity, unit, unitCost, totalCost, categoryName, subCategoryName})
   `;
 
   const imageParts = base64Images.map(img => ({
@@ -145,8 +119,8 @@ export const processGroceryBill = async (
         ]
       },
       config: {
-        // Enable a thinking budget to allow the model to reason about blurry text
-        thinkingConfig: { thinkingBudget: 4000 },
+        // Reduced budget to 1500 for faster 'snapshot' reasoning without hanging
+        thinkingConfig: { thinkingBudget: 1500 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -166,11 +140,9 @@ export const processGroceryBill = async (
                   categoryName: { type: Type.STRING },
                   subCategoryName: { type: Type.STRING },
                 },
-                propertyOrdering: ["description", "quantity", "unit", "unitCost", "totalCost", "categoryName", "subCategoryName"],
               }
             }
-          },
-          propertyOrdering: ["shopName", "date", "items"],
+          }
         }
       }
     });
@@ -184,18 +156,7 @@ export const processGroceryBill = async (
 
 export const processLoanScreenshot = async (base64Image: string): Promise<any> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  const prompt = `
-    Analyze this screenshot containing financial loan or repayment transactions.
-    Extract every individual transaction found. Even if blurry, try to infer based on context.
-    For each transaction, determine:
-    1. Date (YYYY-MM-DD)
-    2. Description/Reason (Be descriptive)
-    3. Amount (number)
-    4. Logical Account Name (Group similar transactions by their likely purpose or creditor name)
-
-    Return a JSON object containing an array of 'transactions'.
-  `;
+  const prompt = `Extract loan/repayment transactions from image. Return JSON {transactions: [{date, description, amount, suggestedAccount}]}.`;
 
   try {
     const response = await ai.models.generateContent({
@@ -207,7 +168,7 @@ export const processLoanScreenshot = async (base64Image: string): Promise<any> =
         ]
       },
       config: {
-        thinkingConfig: { thinkingBudget: 2000 },
+        thinkingConfig: { thinkingBudget: 1000 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -220,9 +181,8 @@ export const processLoanScreenshot = async (base64Image: string): Promise<any> =
                   date: { type: Type.STRING },
                   description: { type: Type.STRING },
                   amount: { type: Type.NUMBER },
-                  suggestedAccount: { type: Type.STRING, description: "Group transactions into logical account names" },
-                },
-                propertyOrdering: ["date", "description", "amount", "suggestedAccount"],
+                  suggestedAccount: { type: Type.STRING },
+                }
               }
             }
           }

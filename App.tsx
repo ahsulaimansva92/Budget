@@ -13,6 +13,37 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie 
 } from 'recharts';
 
+// Helper to compress and resize images for faster API processing
+const compressImage = async (base64Str: string, maxWidth = 1600, quality = 0.7): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+
+      if (width > height) {
+        if (width > maxWidth) {
+          height *= maxWidth / width;
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxWidth) {
+          width *= maxWidth / height;
+          height = maxWidth;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+  });
+};
+
 const SearchableCategoryDropdown: React.FC<{
   currentValue: string;
   categories: GroceryCategory[];
@@ -170,7 +201,6 @@ const CameraScanner: React.FC<{
         const imageData = canvas.toDataURL('image/jpeg', 0.8);
         setCapturedImages(prev => [...prev, imageData]);
         
-        // Brief visual flash effect
         setIsFlashActive(true);
         setTimeout(() => setIsFlashActive(false), 100);
       }
@@ -193,7 +223,6 @@ const CameraScanner: React.FC<{
 
   return (
     <div className="fixed inset-0 bg-black z-[250] flex flex-col items-center justify-between overflow-hidden touch-none">
-      {/* Header */}
       <div className="w-full p-4 flex justify-between items-center bg-black/50 backdrop-blur-md z-10">
         <button onClick={onClose} className="text-white bg-white/10 p-2 rounded-full hover:bg-white/20">
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -202,7 +231,6 @@ const CameraScanner: React.FC<{
         <div className="w-10"></div>
       </div>
 
-      {/* Video Preview */}
       <div className="relative flex-1 w-full bg-slate-900 flex items-center justify-center overflow-hidden">
         <video 
           ref={videoRef} 
@@ -213,13 +241,11 @@ const CameraScanner: React.FC<{
         {isFlashActive && <div className="absolute inset-0 bg-white z-20 animate-fade-out" />}
         <canvas ref={canvasRef} className="hidden" />
         
-        {/* Alignment Overlay */}
         <div className="absolute inset-0 border-[3rem] border-black/40 pointer-events-none flex items-center justify-center">
           <div className="w-full h-[60%] border-2 border-dashed border-white/40 rounded-xl" />
         </div>
       </div>
 
-      {/* Captured strip */}
       <div className="w-full px-4 pt-2 bg-black/80 backdrop-blur-md">
         <div className="flex gap-2 overflow-x-auto py-2 custom-scrollbar min-h-[80px]">
           {capturedImages.map((img, idx) => (
@@ -239,7 +265,6 @@ const CameraScanner: React.FC<{
         </div>
       </div>
 
-      {/* Controls */}
       <div className="w-full p-8 flex justify-between items-center bg-black">
         <div className="w-16"></div>
         <button 
@@ -252,7 +277,7 @@ const CameraScanner: React.FC<{
           {capturedImages.length > 0 && (
             <button 
               onClick={handleDone}
-              className="bg-indigo-600 text-white p-4 rounded-full font-black flex items-center justify-center shadow-lg shadow-indigo-500/20 active:scale-95"
+              className="bg-emerald-600 text-white p-4 rounded-full font-black flex items-center justify-center shadow-lg shadow-emerald-500/20 active:scale-95"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
             </button>
@@ -284,6 +309,7 @@ const App: React.FC = () => {
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isOcrLoading, setIsOcrLoading] = useState(false);
+  const [ocrStatus, setOcrStatus] = useState("Preparing Document...");
   const [showAuditBillId, setShowAuditBillId] = useState<string | null>(null);
   const [showBreakupSubId, setShowBreakupSubId] = useState<string | null>(null);
   const [isManualBillModalOpen, setIsManualBillModalOpen] = useState(false);
@@ -465,14 +491,19 @@ const App: React.FC = () => {
 
   const processImagesForGrocery = async (base64Images: string[]) => {
     setIsOcrLoading(true);
+    setOcrStatus("Optimizing Images...");
     try {
-      const result = await processGroceryBill(base64Images, data.groceryCategories, data.mappingOverrides || {});
+      // Step 1: Compress images on client side to speed up network transfer
+      const compressedImages = await Promise.all(base64Images.map(img => compressImage(img)));
+      
+      setOcrStatus("Enhanced Vision Processing...");
+      const result = await processGroceryBill(compressedImages, data.groceryCategories, data.mappingOverrides || {});
       
       const newBill: GroceryBill = {
         id: `bill-ocr-${Date.now()}`,
         date: result.date || new Date().toISOString().split('T')[0],
         shopName: result.shopName || 'Unknown Shop',
-        imageUrls: base64Images,
+        imageUrls: compressedImages,
         totalAmount: result.items.reduce((s: number, i: any) => s + Number(i.totalCost), 0),
         isVerified: false,
         items: result.items.map((i: any) => {
@@ -494,6 +525,7 @@ const App: React.FC = () => {
       console.error(err);
     } finally { 
       setIsOcrLoading(false); 
+      setOcrStatus("Preparing Document...");
     }
   };
 
@@ -518,6 +550,7 @@ const App: React.FC = () => {
     if (files.length === 0) return;
     
     setIsOcrLoading(true);
+    setOcrStatus("Compressing...");
     try {
       const base64Images = await Promise.all(files.map((file: File) => {
         return new Promise<string>((resolve) => {
@@ -527,12 +560,15 @@ const App: React.FC = () => {
         });
       }));
 
-      const result = await processGeneralBill(base64Images);
-      setScannedBillResult({ ...result, imageUrls: base64Images });
+      const compressed = await Promise.all(base64Images.map(img => compressImage(img)));
+      setOcrStatus("Analyzing Bill...");
+      const result = await processGeneralBill(compressed);
+      setScannedBillResult({ ...result, imageUrls: compressed });
     } catch (err) {
       alert("Bill Scan Failed.");
     } finally {
       setIsOcrLoading(false);
+      setOcrStatus("Preparing Document...");
       e.target.value = '';
     }
   };
@@ -578,7 +614,6 @@ const App: React.FC = () => {
     });
   };
 
-  // Loan Logic
   const handleAddLoanAccount = () => {
     const name = prompt("Loan Name/Creditor?");
     if (!name) return;
@@ -606,13 +641,16 @@ const App: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsOcrLoading(true);
+    setOcrStatus("Compressing Statement...");
     try {
       const base64 = await new Promise<string>(resolve => {
         const reader = new FileReader();
         reader.onload = ev => resolve(ev.target?.result as string);
         reader.readAsDataURL(file);
       });
-      const result = await processLoanScreenshot(base64);
+      const compressed = await compressImage(base64);
+      setOcrStatus("Extracting Transactions...");
+      const result = await processLoanScreenshot(compressed);
       if (result.transactions && result.transactions.length > 0) {
         setData(prev => {
           let updatedLoans = [...prev.loans];
@@ -627,14 +665,14 @@ const App: React.FC = () => {
               date: t.date || new Date().toISOString().split('T')[0],
               description: t.description,
               amount: Number(t.amount),
-              type: 'repayment' // Assume repayment unless specified
+              type: 'repayment'
             });
           });
           return { ...prev, loans: updatedLoans };
         });
       }
     } catch (err) { alert("Loan Scan Failed."); }
-    finally { setIsOcrLoading(false); e.target.value = ''; }
+    finally { setIsOcrLoading(false); setOcrStatus("Preparing Document..."); e.target.value = ''; }
   };
 
   return (
@@ -824,7 +862,7 @@ const App: React.FC = () => {
                   className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-100 transition-all hover:scale-105 active:scale-95"
                 >
                   {isOcrLoading ? (
-                    <><span className="animate-spin text-xl">🌀</span> Scanning...</>
+                    <><span className="animate-spin text-xl">🌀</span> Processing...</>
                   ) : (
                     <><span className="text-xl">📷</span> Capture Bill(s)</>
                   )}
@@ -1185,9 +1223,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* MODALS AND OVERLAYS */}
-      
-      {/* Bill Application Modal */}
       {scannedBillResult && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
            <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
@@ -1264,7 +1299,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Manual Entry Modal */}
       {isManualBillModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[80] flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
@@ -1394,13 +1428,12 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* OCR Loading Overlay */}
       {isOcrLoading && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[300] flex flex-col items-center justify-center">
            <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl flex flex-col items-center gap-6">
               <div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
               <div className="text-center">
-                <h4 className="text-xl font-black text-slate-900">Enhanced Vision Processing...</h4>
+                <h4 className="text-xl font-black text-slate-900">{ocrStatus}</h4>
                 <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">AI is reconstructing details from your photo</p>
               </div>
            </div>
