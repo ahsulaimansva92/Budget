@@ -3,7 +3,6 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { BudgetData, GroceryCategory, CategoryOverride } from "../types";
 
 export const analyzeBudget = async (data: BudgetData): Promise<string> => {
-  // Always use a named parameter for apiKey and obtain it from process.env.API_KEY
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
@@ -16,16 +15,70 @@ export const analyzeBudget = async (data: BudgetData): Promise<string> => {
   `;
 
   try {
-    // Use gemini-3-flash-preview for basic text tasks like summarization and Q&A
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
-    // Use .text property directly, it's not a method
     return response.text || "Could not generate insights.";
   } catch (error) {
     console.error("Gemini Analysis Error:", error);
     return "AI Analysis temporarily unavailable.";
+  }
+};
+
+export const processGeneralBill = async (base64Images: string[]): Promise<any> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  const prompt = `
+    Analyze these bill/receipt image(s). They might be utility bills, invoices, or simple retail receipts.
+    Extract the following information:
+    - merchantName (e.g., CEB, Water Board, Shop name)
+    - date (YYYY-MM-DD)
+    - amount (number)
+    - type (one of: 'recurring_expense', 'one_time_payment', 'income')
+    - confidence (0-1 score)
+    - summary (a short description of the bill)
+
+    Return a JSON object.
+  `;
+
+  const imageParts = base64Images.map(img => ({
+    inlineData: { 
+      mimeType: "image/jpeg", 
+      data: img.split(',')[1] || img 
+    }
+  }));
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: {
+        parts: [
+          { text: prompt },
+          ...imageParts
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            merchantName: { type: Type.STRING },
+            date: { type: Type.STRING },
+            amount: { type: Type.NUMBER },
+            type: { type: Type.STRING },
+            confidence: { type: Type.NUMBER },
+            summary: { type: Type.STRING },
+          },
+          propertyOrdering: ["merchantName", "date", "amount", "type", "confidence", "summary"],
+        }
+      }
+    });
+
+    return JSON.parse(response.text || '{}');
+  } catch (error) {
+    console.error("General Bill OCR Error:", error);
+    throw error;
   }
 };
 
@@ -34,7 +87,6 @@ export const processGroceryBill = async (
   categories: GroceryCategory[], 
   overrides: Record<string, CategoryOverride> = {}
 ): Promise<any> => {
-  // Obtain API key from environment variable
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const categoryContext = categories.map(c => 
@@ -75,7 +127,6 @@ export const processGroceryBill = async (
   }));
 
   try {
-    // Use gemini-3-pro-preview for complex reasoning tasks like multimodal OCR and categorization
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: {
@@ -136,7 +187,6 @@ export const processLoanScreenshot = async (base64Image: string): Promise<any> =
   `;
 
   try {
-    // Use gemini-3-pro-preview for complex text and visual analysis
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: {

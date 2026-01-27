@@ -8,7 +8,7 @@ import {
 import { INITIAL_DATA } from './constants';
 import Layout from './components/Layout';
 import SummaryCard from './components/SummaryCard';
-import { analyzeBudget, processGroceryBill, processLoanScreenshot } from './services/geminiService';
+import { analyzeBudget, processGroceryBill, processGeneralBill, processLoanScreenshot } from './services/geminiService';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie 
 } from 'recharts';
@@ -114,6 +114,155 @@ const SearchableCategoryDropdown: React.FC<{
   );
 };
 
+const CameraScanner: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onCapture: (images: string[]) => void;
+}> = ({ isOpen, onClose, onCapture }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [capturedImages, setCapturedImages] = useState<string[]>([]);
+  const [isFlashActive, setIsFlashActive] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      startCamera();
+    } else {
+      stopCamera();
+    }
+    return () => stopCamera();
+  }, [isOpen]);
+
+  const startCamera = async () => {
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+        audio: false
+      });
+      setStream(mediaStream);
+      if (videoRef.current) {
+        videoRef.current.srcObject = mediaStream;
+      }
+    } catch (err) {
+      console.error("Camera access denied:", err);
+      alert("Please allow camera access to scan bills.");
+      onClose();
+    }
+  };
+
+  const stopCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+  };
+
+  const takePhoto = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
+      if (context) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = canvas.toDataURL('image/jpeg', 0.8);
+        setCapturedImages(prev => [...prev, imageData]);
+        
+        // Brief visual flash effect
+        setIsFlashActive(true);
+        setTimeout(() => setIsFlashActive(false), 100);
+      }
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    setCapturedImages(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleDone = () => {
+    if (capturedImages.length > 0) {
+      onCapture(capturedImages);
+      setCapturedImages([]);
+      onClose();
+    }
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black z-[250] flex flex-col items-center justify-between overflow-hidden touch-none">
+      {/* Header */}
+      <div className="w-full p-4 flex justify-between items-center bg-black/50 backdrop-blur-md z-10">
+        <button onClick={onClose} className="text-white bg-white/10 p-2 rounded-full hover:bg-white/20">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+        <h3 className="text-white font-black text-sm uppercase tracking-widest">Scanning Receipt</h3>
+        <div className="w-10"></div>
+      </div>
+
+      {/* Video Preview */}
+      <div className="relative flex-1 w-full bg-slate-900 flex items-center justify-center overflow-hidden">
+        <video 
+          ref={videoRef} 
+          autoPlay 
+          playsInline 
+          className={`w-full h-full object-cover transition-opacity duration-300 ${isFlashActive ? 'opacity-0' : 'opacity-100'}`}
+        />
+        {isFlashActive && <div className="absolute inset-0 bg-white z-20 animate-fade-out" />}
+        <canvas ref={canvasRef} className="hidden" />
+        
+        {/* Alignment Overlay */}
+        <div className="absolute inset-0 border-[3rem] border-black/40 pointer-events-none flex items-center justify-center">
+          <div className="w-full h-[60%] border-2 border-dashed border-white/40 rounded-xl" />
+        </div>
+      </div>
+
+      {/* Captured strip */}
+      <div className="w-full px-4 pt-2 bg-black/80 backdrop-blur-md">
+        <div className="flex gap-2 overflow-x-auto py-2 custom-scrollbar min-h-[80px]">
+          {capturedImages.map((img, idx) => (
+            <div key={idx} className="relative flex-shrink-0">
+              <img src={img} className="h-16 w-12 object-cover rounded-md border border-white/20" />
+              <button 
+                onClick={() => removePhoto(idx)}
+                className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+          ))}
+          {capturedImages.length === 0 && (
+            <div className="h-16 flex items-center text-slate-500 text-[10px] font-bold uppercase tracking-wider pl-2">No frames captured</div>
+          )}
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="w-full p-8 flex justify-between items-center bg-black">
+        <div className="w-16"></div>
+        <button 
+          onClick={takePhoto}
+          className="w-20 h-20 bg-white rounded-full p-1 ring-4 ring-white/20 active:scale-90 transition-transform flex items-center justify-center"
+        >
+          <div className="w-full h-full bg-white rounded-full border-4 border-black/10" />
+        </button>
+        <div className="w-16">
+          {capturedImages.length > 0 && (
+            <button 
+              onClick={handleDone}
+              className="bg-indigo-600 text-white p-4 rounded-full font-black flex items-center justify-center shadow-lg shadow-indigo-500/20 active:scale-95"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [grocerySubTab, setGrocerySubTab] = useState<'analysis' | 'bills' | 'categories'>('analysis');
@@ -138,7 +287,11 @@ const App: React.FC = () => {
   const [showAuditBillId, setShowAuditBillId] = useState<string | null>(null);
   const [showBreakupSubId, setShowBreakupSubId] = useState<string | null>(null);
   const [isManualBillModalOpen, setIsManualBillModalOpen] = useState(false);
+  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
+  const [showCaptureOptions, setShowCaptureOptions] = useState(false);
   
+  const [scannedBillResult, setScannedBillResult] = useState<any | null>(null);
+
   const [manualBillData, setManualBillData] = useState<{
     shopName: string;
     date: string;
@@ -150,10 +303,8 @@ const App: React.FC = () => {
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const loanFileInputRef = useRef<HTMLInputElement>(null);
-
-  const [selectedLoanAccountId, setSelectedLoanAccountId] = useState<string | null>(null);
-  const [isLoanOcrLoading, setIsLoanOcrLoading] = useState(false);
+  const generalScanInputRef = useRef<HTMLInputElement>(null);
+  const loanScanInputRef = useRef<HTMLInputElement>(null);
 
   const syncCashData = (currentData: BudgetData): BudgetData => {
     const today = new Date().toISOString().split('T')[0];
@@ -312,23 +463,9 @@ const App: React.FC = () => {
     setManualBillData(prev => ({ ...prev, items: prev.items.map(item => item.id === id ? { ...item, [field]: value } : item) }));
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Explicitly cast to File[] to avoid 'unknown' type issues in map callbacks
-    const files = Array.from(e.target.files || []) as File[];
-    if (files.length === 0) return;
-    
+  const processImagesForGrocery = async (base64Images: string[]) => {
     setIsOcrLoading(true);
-    
     try {
-      const base64Images = await Promise.all(files.map((file: File) => {
-        return new Promise<string>((resolve) => {
-          const reader = new FileReader();
-          reader.onload = (ev) => resolve(ev.target?.result as string);
-          // file is now correctly typed as File (which extends Blob)
-          reader.readAsDataURL(file);
-        });
-      }));
-
       const result = await processGroceryBill(base64Images, data.groceryCategories, data.mappingOverrides || {});
       
       const newBill: GroceryBill = {
@@ -357,8 +494,64 @@ const App: React.FC = () => {
       console.error(err);
     } finally { 
       setIsOcrLoading(false); 
-      e.target.value = ''; 
     }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []) as File[];
+    if (files.length === 0) return;
+    
+    const base64Images = await Promise.all(files.map((file: File) => {
+      return new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (ev) => resolve(ev.target?.result as string);
+        reader.readAsDataURL(file);
+      });
+    }));
+
+    await processImagesForGrocery(base64Images);
+    e.target.value = ''; 
+  };
+
+  const handleGeneralScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []) as File[];
+    if (files.length === 0) return;
+    
+    setIsOcrLoading(true);
+    try {
+      const base64Images = await Promise.all(files.map((file: File) => {
+        return new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve(ev.target?.result as string);
+          reader.readAsDataURL(file);
+        });
+      }));
+
+      const result = await processGeneralBill(base64Images);
+      setScannedBillResult({ ...result, imageUrls: base64Images });
+    } catch (err) {
+      alert("Bill Scan Failed.");
+    } finally {
+      setIsOcrLoading(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleApplyScannedBill = (targetId: string, targetType: 'expense' | 'onetime' | 'income') => {
+    if (!scannedBillResult) return;
+    
+    setData(prev => {
+      let newData = { ...prev };
+      if (targetType === 'expense') {
+        newData.expenses = prev.expenses.map(e => e.id === targetId ? { ...e, amount: scannedBillResult.amount } : e);
+      } else if (targetType === 'onetime') {
+        newData.oneTimePayments = prev.oneTimePayments.map(p => p.id === targetId ? { ...p, paidAmount: scannedBillResult.amount, dueDate: scannedBillResult.date } : p);
+      } else if (targetType === 'income') {
+        newData.income = prev.income.map(i => i.id === targetId ? { ...i, amount: scannedBillResult.amount } : i);
+      }
+      return syncCashData(newData);
+    });
+    setScannedBillResult(null);
   };
 
   const handleCategorizeItem = (billId: string, itemId: string, catId: string, subCatId: string) => {
@@ -385,15 +578,85 @@ const App: React.FC = () => {
     });
   };
 
+  // Loan Logic
+  const handleAddLoanAccount = () => {
+    const name = prompt("Loan Name/Creditor?");
+    if (!name) return;
+    setData(prev => ({
+      ...prev,
+      loans: [...prev.loans, { id: `loan-${Date.now()}`, name, openingBalance: 0, transactions: [] }]
+    }));
+  };
+
+  const handleAddLoanTransaction = (loanId: string, type: LoanTransactionType) => {
+    const description = prompt("Description?");
+    const amount = Number(prompt("Amount?"));
+    if (!description || isNaN(amount)) return;
+    
+    setData(prev => ({
+      ...prev,
+      loans: prev.loans.map(loan => loan.id === loanId ? {
+        ...loan,
+        transactions: [{ id: `t-${Date.now()}`, date: new Date().toISOString().split('T')[0], description, amount, type }, ...loan.transactions]
+      } : loan)
+    }));
+  };
+
+  const handleLoanScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsOcrLoading(true);
+    try {
+      const base64 = await new Promise<string>(resolve => {
+        const reader = new FileReader();
+        reader.onload = ev => resolve(ev.target?.result as string);
+        reader.readAsDataURL(file);
+      });
+      const result = await processLoanScreenshot(base64);
+      if (result.transactions && result.transactions.length > 0) {
+        setData(prev => {
+          let updatedLoans = [...prev.loans];
+          result.transactions.forEach((t: any) => {
+            let account = updatedLoans.find(l => l.name.toLowerCase() === t.suggestedAccount.toLowerCase());
+            if (!account) {
+              account = { id: `loan-${Math.random()}`, name: t.suggestedAccount, openingBalance: 0, transactions: [] };
+              updatedLoans.push(account);
+            }
+            account.transactions.unshift({
+              id: `t-${Math.random()}`,
+              date: t.date || new Date().toISOString().split('T')[0],
+              description: t.description,
+              amount: Number(t.amount),
+              type: 'repayment' // Assume repayment unless specified
+            });
+          });
+          return { ...prev, loans: updatedLoans };
+        });
+      }
+    } catch (err) { alert("Loan Scan Failed."); }
+    finally { setIsOcrLoading(false); e.target.value = ''; }
+  };
+
   return (
     <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
+      <input type="file" multiple accept="image/*" ref={generalScanInputRef} onChange={handleGeneralScan} className="hidden" />
+      <input type="file" accept="image/*" ref={loanScanInputRef} onChange={handleLoanScan} className="hidden" />
+      
+      <CameraScanner 
+        isOpen={isCameraModalOpen} 
+        onClose={() => setIsCameraModalOpen(false)} 
+        onCapture={processImagesForGrocery} 
+      />
+
       {activeTab === 'dashboard' && (
         <div className="space-y-10 animate-in fade-in duration-500">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">Financial Dashboard</h2>
-            <button onClick={async () => { setIsAnalyzing(true); setAiInsight(await analyzeBudget(data)); setIsAnalyzing(false); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-100 transition-all flex items-center gap-2 transform hover:scale-105 active:scale-95">
-              {isAnalyzing ? '✨ Analyzing...' : '✨ Get AI Insights'}
-            </button>
+            <div className="flex gap-3">
+              <button onClick={async () => { setIsAnalyzing(true); setAiInsight(await analyzeBudget(data)); setIsAnalyzing(false); }} className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-100 transition-all flex items-center gap-2 transform hover:scale-105 active:scale-95">
+                {isAnalyzing ? '✨ Analyzing...' : '✨ Get AI Insights'}
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <SummaryCard title="Total Income" amount={totals.totalIncome} color="indigo" />
@@ -415,7 +678,12 @@ const App: React.FC = () => {
 
       {activeTab === 'income' && (
         <div className="space-y-6 animate-in fade-in duration-300">
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Monthly Income</h2>
+          <div className="flex justify-between items-center">
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Monthly Income</h2>
+            <button onClick={() => generalScanInputRef.current?.click()} className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-lg font-bold text-xs border border-indigo-200 hover:bg-indigo-100 transition-all flex items-center gap-2">
+              📄 Scan Invoice
+            </button>
+          </div>
           <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
             <table className="w-full text-left border-collapse">
               <thead className="bg-slate-50">
@@ -448,7 +716,12 @@ const App: React.FC = () => {
 
       {activeTab === 'expenses' && (
         <div className="space-y-10 animate-in fade-in duration-300">
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Recurring Expenses</h2>
+          <div className="flex justify-between items-center">
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Recurring Expenses</h2>
+            <button onClick={() => generalScanInputRef.current?.click()} className="bg-orange-50 text-orange-700 px-4 py-2 rounded-lg font-bold text-xs border border-orange-200 hover:bg-orange-100 transition-all flex items-center gap-2">
+              📄 Scan Utility Bill
+            </button>
+          </div>
           <div className="grid grid-cols-1 gap-12">
             {['Salary', 'Rent'].map(source => (
               <div key={source} className="space-y-4">
@@ -496,18 +769,86 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {activeTab === 'onetime' && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+           <div className="flex justify-between items-center">
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight">One-Time Payments</h2>
+            <button onClick={() => generalScanInputRef.current?.click()} className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg font-bold text-xs border border-blue-200 hover:bg-blue-100 transition-all flex items-center gap-2">
+              🏷️ Scan Receipt
+            </button>
+          </div>
+          <div className="grid grid-cols-1 gap-4">
+             {data.oneTimePayments.map(payment => (
+                <div key={payment.id} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                   <div className="flex-1">
+                      <h3 className="text-lg font-black text-slate-800">{payment.title}</h3>
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Due: {payment.dueDate || 'No date set'}</p>
+                   </div>
+                   <div className="flex gap-4 items-end">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] font-black text-slate-400 uppercase">Total Bill</span>
+                        <input type="number" value={payment.totalAmount} onChange={(e) => setData(prev => ({...prev, oneTimePayments: prev.oneTimePayments.map(p => p.id === payment.id ? {...p, totalAmount: Number(e.target.value)} : p)}))} className="w-32 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 outline-none" />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] font-black text-indigo-400 uppercase">Paid Amount</span>
+                        <input type="number" value={payment.paidAmount} onChange={(e) => setData(prev => ({...prev, oneTimePayments: prev.oneTimePayments.map(p => p.id === payment.id ? {...p, paidAmount: Number(e.target.value)} : p)}))} className="w-32 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-sm font-bold text-indigo-700 outline-none" />
+                      </div>
+                      <div className="bg-slate-100 h-10 w-[2px] mb-2 hidden md:block"></div>
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[10px] font-black text-slate-400 uppercase">Status</span>
+                        <div className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider ${payment.paidAmount >= payment.totalAmount && payment.totalAmount > 0 ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                          {payment.paidAmount >= payment.totalAmount && payment.totalAmount > 0 ? 'Settled' : 'Pending'}
+                        </div>
+                      </div>
+                   </div>
+                </div>
+             ))}
+             <button onClick={() => setData(prev => ({...prev, oneTimePayments: [...prev.oneTimePayments, { id: `otp-${Date.now()}`, title: 'New Payment', totalAmount: 0, paidAmount: 0, dueDate: '' }]}))} className="py-6 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 font-black uppercase tracking-widest hover:bg-slate-50 transition-all">+ Add New Entry</button>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'groceries' && (
         <div className="space-y-10 animate-in fade-in duration-300 pb-10">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">Grocery Tracker</h2>
-            <div className="flex gap-3">
-              <button onClick={() => setIsManualBillModalOpen(true)} className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-indigo-100 transition-all hover:scale-105 active:scale-95">
-                <span className="text-xl">✍️</span> Add Bill Manually
+            <div className="flex flex-wrap gap-3 relative">
+              <button onClick={() => setIsManualBillModalOpen(true)} className="bg-white text-indigo-600 border border-indigo-200 px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-sm transition-all hover:bg-indigo-50 active:scale-95">
+                <span className="text-xl">✍️</span> Manual Entry
               </button>
+              
+              <div className="relative">
+                <button 
+                  onClick={() => setShowCaptureOptions(!showCaptureOptions)} 
+                  disabled={isOcrLoading}
+                  className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-100 transition-all hover:scale-105 active:scale-95"
+                >
+                  {isOcrLoading ? (
+                    <><span className="animate-spin text-xl">🌀</span> Processing...</>
+                  ) : (
+                    <><span className="text-xl">📷</span> Capture Bill(s)</>
+                  )}
+                </button>
+                
+                {showCaptureOptions && (
+                  <div className="absolute top-full mt-2 right-0 w-56 bg-white rounded-2xl shadow-2xl border border-slate-100 p-2 z-[150] animate-in slide-in-from-top-2">
+                    <button 
+                      onClick={() => { setIsCameraModalOpen(true); setShowCaptureOptions(false); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-indigo-50 rounded-xl text-sm font-black text-slate-700 transition-colors"
+                    >
+                      <span className="text-xl">📸</span> Scan with Camera
+                    </button>
+                    <button 
+                      onClick={() => { fileInputRef.current?.click(); setShowCaptureOptions(false); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-indigo-50 rounded-xl text-sm font-black text-slate-700 transition-colors"
+                    >
+                      <span className="text-xl">📁</span> Upload from Files
+                    </button>
+                  </div>
+                )}
+              </div>
+              
               <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
-              <button onClick={() => fileInputRef.current?.click()} disabled={isOcrLoading} className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-100 transition-all hover:scale-105 active:scale-95">
-                {isOcrLoading ? <><span className="animate-spin text-xl">🌀</span> Scanning...</> : <><span className="text-xl">📷</span> Capture Bill(s)</>}
-              </button>
             </div>
           </div>
 
@@ -670,7 +1011,260 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* MANUAL ENTRY MODAL */}
+      {activeTab === 'loans' && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          <div className="flex justify-between items-center">
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Loan Tracking</h2>
+            <div className="flex gap-3">
+              <button onClick={() => loanScanInputRef.current?.click()} className="bg-amber-50 text-amber-700 px-4 py-2 rounded-lg font-bold text-xs border border-amber-200 hover:bg-amber-100 transition-all flex items-center gap-2">
+                📜 Scan Statement
+              </button>
+              <button onClick={handleAddLoanAccount} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-xs shadow-lg transition-all hover:scale-105">+ Add Loan</button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-8">
+            {data.loans.map(loan => (
+              <div key={loan.id} className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden">
+                <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
+                  <div>
+                    <h3 className="text-xl font-black text-slate-800">{loan.name}</h3>
+                    <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Opening: Rs. {loan.openingBalance.toLocaleString()}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => handleAddLoanTransaction(loan.id, 'taken')} className="bg-red-50 text-red-700 px-4 py-2 rounded-xl text-xs font-black uppercase border border-red-100">+ Debt Taken</button>
+                    <button onClick={() => handleAddLoanTransaction(loan.id, 'repayment')} className="bg-green-50 text-green-700 px-4 py-2 rounded-xl text-xs font-black uppercase border border-green-100">+ Repayment</button>
+                  </div>
+                </div>
+                <div className="p-6">
+                   <table className="w-full text-left">
+                      <thead>
+                        <tr className="text-[10px] font-black text-slate-400 uppercase border-b pb-2">
+                          <th className="py-2">Date</th>
+                          <th className="py-2">Description</th>
+                          <th className="py-2 text-right">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {loan.transactions.map(t => (
+                          <tr key={t.id} className="text-sm">
+                            <td className="py-3 font-bold text-slate-400">{t.date}</td>
+                            <td className="py-3 font-semibold text-slate-700">{t.description}</td>
+                            <td className={`py-3 font-black text-right ${t.type === 'taken' ? 'text-red-600' : 'text-green-600'}`}>
+                              {t.type === 'taken' ? '+' : '-'} Rs. {t.amount.toLocaleString()}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                   </table>
+                   <div className="mt-6 pt-6 border-t flex justify-between items-center">
+                      <span className="text-xs font-black text-slate-400 uppercase">Outstanding Balance</span>
+                      <span className="text-2xl font-black text-slate-900">
+                        Rs. {(loan.openingBalance + loan.transactions.reduce((s, t) => t.type === 'taken' ? s + t.amount : s - t.amount, 0)).toLocaleString()}
+                      </span>
+                   </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'cash' && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Cash on Hand</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200">
+               <h3 className="text-lg font-black text-emerald-700 mb-6 flex justify-between items-center">
+                 Cash Income
+                 <button onClick={() => {
+                    const desc = prompt("Source?");
+                    const amt = Number(prompt("Amount?"));
+                    if(desc && !isNaN(amt)) setData(prev => ({...prev, cash: {...prev.cash, income: [...prev.cash.income, {id: `ci-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: desc, amount: amt}]}}));
+                 }} className="text-xs font-black bg-emerald-50 px-3 py-1 rounded-lg uppercase tracking-wider">+ Log</button>
+               </h3>
+               <div className="space-y-3 max-h-96 overflow-auto pr-2 custom-scrollbar">
+                  {data.cash.income.map(item => (
+                    <div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold text-slate-800">{item.description}</span>
+                        <span className="text-[10px] text-slate-400 font-bold uppercase">{item.date}</span>
+                      </div>
+                      <span className="font-black text-emerald-600">Rs. {item.amount.toLocaleString()}</span>
+                    </div>
+                  ))}
+               </div>
+            </div>
+            <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200">
+               <h3 className="text-lg font-black text-red-700 mb-6 flex justify-between items-center">
+                 Cash Expenses
+                 <button onClick={() => {
+                    const desc = prompt("Reason?");
+                    const amt = Number(prompt("Amount?"));
+                    if(desc && !isNaN(amt)) setData(prev => ({...prev, cash: {...prev.cash, expenses: [...prev.cash.expenses, {id: `ce-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: desc, amount: amt}]}}));
+                 }} className="text-xs font-black bg-red-50 px-3 py-1 rounded-lg uppercase tracking-wider">+ Log</button>
+               </h3>
+               <div className="space-y-3 max-h-96 overflow-auto pr-2 custom-scrollbar">
+                  {data.cash.expenses.map(item => (
+                    <div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold text-slate-800">{item.description}</span>
+                        <span className="text-[10px] text-slate-400 font-bold uppercase">{item.date}</span>
+                      </div>
+                      <span className="font-black text-red-600">Rs. {item.amount.toLocaleString()}</span>
+                    </div>
+                  ))}
+               </div>
+            </div>
+          </div>
+          <div className="bg-indigo-900 p-8 rounded-3xl text-white flex justify-between items-center shadow-2xl">
+             <div>
+               <p className="text-xs font-black text-indigo-300 uppercase tracking-widest mb-1">Total Available Cash</p>
+               <h4 className="text-4xl font-black">Rs. {totals.cashBalance.toLocaleString()}</h4>
+             </div>
+             <div className="text-right">
+                <p className="text-[10px] font-black text-indigo-300 uppercase tracking-widest mb-1">Opening Bal.</p>
+                <input type="number" value={data.cash.openingBalance} onChange={e => setData(prev => ({...prev, cash: {...prev.cash, openingBalance: Number(e.target.value)}}))} className="bg-indigo-800 border-none rounded-lg text-sm font-bold text-white w-28 text-right outline-none px-2" />
+             </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'savings' && (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Savings Tracker</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200">
+               <h3 className="text-lg font-black text-indigo-700 mb-6 flex justify-between items-center">
+                 Additions
+                 <button onClick={() => {
+                    const amt = Number(prompt("Amount?"));
+                    if(!isNaN(amt)) setData(prev => ({...prev, savings: {...prev.savings, additions: [...prev.savings.additions, {id: `sa-${Date.now()}`, amount: amt, date: new Date().toISOString().split('T')[0]}]}}));
+                 }} className="text-xs font-black bg-indigo-50 px-3 py-1 rounded-lg uppercase tracking-wider">+ Add</button>
+               </h3>
+               <div className="space-y-3">
+                  {data.savings.additions.map(item => (
+                    <div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                      <span className="text-sm font-bold text-slate-400">{item.date}</span>
+                      <span className="font-black text-indigo-600">Rs. {item.amount.toLocaleString()}</span>
+                    </div>
+                  ))}
+               </div>
+            </div>
+            <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200">
+               <h3 className="text-lg font-black text-slate-700 mb-6 flex justify-between items-center">
+                 Withdrawals
+                 <button onClick={() => {
+                    const reason = prompt("Reason?");
+                    const amt = Number(prompt("Amount?"));
+                    if(reason && !isNaN(amt)) setData(prev => ({...prev, savings: {...prev.savings, withdrawals: [...prev.savings.withdrawals, {id: `sw-${Date.now()}`, amount: amt, date: new Date().toISOString().split('T')[0], reason}]}}));
+                 }} className="text-xs font-black bg-slate-50 px-3 py-1 rounded-lg uppercase tracking-wider">+ Log</button>
+               </h3>
+               <div className="space-y-3">
+                  {data.savings.withdrawals.map(item => (
+                    <div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
+                      <div className="flex flex-col">
+                        <span className="text-sm font-bold text-slate-800">{item.reason}</span>
+                        <span className="text-[10px] text-slate-400 font-bold uppercase">{item.date}</span>
+                      </div>
+                      <span className="font-black text-slate-900">Rs. {item.amount.toLocaleString()}</span>
+                    </div>
+                  ))}
+               </div>
+            </div>
+          </div>
+          <div className="bg-white p-8 rounded-3xl border-2 border-indigo-100 flex justify-between items-center shadow-lg">
+             <div>
+               <p className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Savings Current Balance</p>
+               <h4 className="text-4xl font-black text-indigo-900">Rs. {totals.savingsBalance.toLocaleString()}</h4>
+             </div>
+             <div className="text-right">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Opening Bal.</p>
+                <input type="number" value={data.savings.openingBalance} onChange={e => setData(prev => ({...prev, savings: {...prev.savings, openingBalance: Number(e.target.value)}}))} className="bg-slate-50 border border-slate-200 rounded-lg text-sm font-bold text-slate-800 w-28 text-right outline-none px-2 py-1" />
+             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODALS AND OVERLAYS */}
+      
+      {/* Bill Application Modal */}
+      {scannedBillResult && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+           <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
+              <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+                <div>
+                  <h3 className="text-2xl font-black text-slate-900 tracking-tight">Assign Scanned Bill</h3>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Confirmed details from OCR scan</p>
+                </div>
+                <button onClick={() => setScannedBillResult(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
+              </div>
+              <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-2 gap-10">
+                <div className="space-y-4">
+                  <div className="rounded-2xl border-2 border-slate-100 overflow-hidden shadow-sm bg-slate-100 aspect-[4/3] flex items-center justify-center">
+                    {scannedBillResult.imageUrls?.length > 0 ? (
+                      <img src={scannedBillResult.imageUrls[0]} className="w-full h-full object-contain" alt="Bill" />
+                    ) : <div className="text-6xl text-slate-300">📄</div>}
+                  </div>
+                  <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+                    <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">Scan Summary</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                       <div>
+                          <p className="text-[10px] font-black text-slate-400 uppercase">Provider</p>
+                          <p className="font-bold text-slate-800">{scannedBillResult.merchantName}</p>
+                       </div>
+                       <div>
+                          <p className="text-[10px] font-black text-slate-400 uppercase">Date</p>
+                          <p className="font-bold text-slate-800">{scannedBillResult.date}</p>
+                       </div>
+                       <div className="col-span-2">
+                          <p className="text-[10px] font-black text-slate-400 uppercase">Amount</p>
+                          <p className="text-3xl font-black text-indigo-700">Rs. {scannedBillResult.amount?.toLocaleString()}</p>
+                       </div>
+                       <div className="col-span-2">
+                          <p className="text-[10px] font-black text-slate-400 uppercase italic">Gemini Insight</p>
+                          <p className="text-xs font-medium text-slate-600 mt-1">{scannedBillResult.summary}</p>
+                       </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-6">
+                   <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Select Target Account to Apply</h4>
+                   <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                      <div className="space-y-2">
+                        <p className="text-[9px] font-black text-orange-500 uppercase tracking-widest pl-2">Monthly Expenses</p>
+                        {data.expenses.map(exp => (
+                          <button key={exp.id} onClick={() => handleApplyScannedBill(exp.id, 'expense')} className="w-full text-left p-4 bg-white border border-slate-200 rounded-xl hover:border-indigo-500 hover:shadow-md transition-all flex justify-between items-center group">
+                            <span className="font-bold text-slate-700 group-hover:text-indigo-600">{exp.name}</span>
+                            <span className="text-xs font-black text-slate-400">Rs. {exp.amount.toLocaleString()}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="space-y-2 pt-4">
+                        <p className="text-[9px] font-black text-blue-500 uppercase tracking-widest pl-2">One-Time Payments</p>
+                        {data.oneTimePayments.map(otp => (
+                          <button key={otp.id} onClick={() => handleApplyScannedBill(otp.id, 'onetime')} className="w-full text-left p-4 bg-white border border-slate-200 rounded-xl hover:border-indigo-500 hover:shadow-md transition-all flex justify-between items-center group">
+                            <span className="font-bold text-slate-700 group-hover:text-indigo-600">{otp.title}</span>
+                            <span className="text-xs font-black text-slate-400">Rs. {otp.totalAmount.toLocaleString()}</span>
+                          </button>
+                        ))}
+                      </div>
+                      <div className="space-y-2 pt-4">
+                        <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest pl-2">Income Sources</p>
+                        {data.income.map(inc => (
+                          <button key={inc.id} onClick={() => handleApplyScannedBill(inc.id, 'income')} className="w-full text-left p-4 bg-white border border-slate-200 rounded-xl hover:border-indigo-500 hover:shadow-md transition-all flex justify-between items-center group">
+                            <span className="font-bold text-slate-700 group-hover:text-indigo-600">{inc.name}</span>
+                            <span className="text-xs font-black text-slate-400">Rs. {inc.amount.toLocaleString()}</span>
+                          </button>
+                        ))}
+                      </div>
+                   </div>
+                </div>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* Manual Entry Modal */}
       {isManualBillModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[80] flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
@@ -797,6 +1391,19 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* OCR Loading Overlay */}
+      {isOcrLoading && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[300] flex flex-col items-center justify-center">
+           <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl flex flex-col items-center gap-6">
+              <div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+              <div className="text-center">
+                <h4 className="text-xl font-black text-slate-900">Processing Document...</h4>
+                <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">Gemini is extracting details</p>
+              </div>
+           </div>
         </div>
       )}
     </Layout>
