@@ -14,7 +14,8 @@ import {
 } from 'recharts';
 
 // Helper to compress and resize images for faster API processing
-const compressImage = async (base64Str: string, maxWidth = 1600, quality = 0.7): Promise<string> => {
+// Reducing quality slightly more and limiting size to 1280px to prevent "getting stuck"
+const compressImage = async (base64Str: string, maxWidth = 1280, quality = 0.6): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
     img.src = base64Str;
@@ -38,7 +39,12 @@ const compressImage = async (base64Str: string, maxWidth = 1600, quality = 0.7):
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
-      ctx?.drawImage(img, 0, 0, width, height);
+      // Set white background for JPEG compression
+      if (ctx) {
+        ctx.fillStyle = "#FFFFFF";
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+      }
       resolve(canvas.toDataURL('image/jpeg', quality));
     };
   });
@@ -491,12 +497,12 @@ const App: React.FC = () => {
 
   const processImagesForGrocery = async (base64Images: string[]) => {
     setIsOcrLoading(true);
-    setOcrStatus("Optimizing Images...");
+    setOcrStatus("Transcribing Table...");
     try {
-      // Step 1: Compress images on client side to speed up network transfer
+      // Compress images for reliability
       const compressedImages = await Promise.all(base64Images.map(img => compressImage(img)));
       
-      setOcrStatus("Enhanced Vision Processing...");
+      setOcrStatus("Capturing Item Data...");
       const result = await processGroceryBill(compressedImages, data.groceryCategories, data.mappingOverrides || {});
       
       const newBill: GroceryBill = {
@@ -521,7 +527,7 @@ const App: React.FC = () => {
       setData(prev => ({ ...prev, groceryBills: [newBill, ...prev.groceryBills] }));
       setGrocerySubTab('bills');
     } catch (err) { 
-      alert("OCR Failed. Please try with clearer images."); 
+      alert("Bill Capture Failed. Try taking a photo from a different angle."); 
       console.error(err);
     } finally { 
       setIsOcrLoading(false); 
@@ -550,7 +556,7 @@ const App: React.FC = () => {
     if (files.length === 0) return;
     
     setIsOcrLoading(true);
-    setOcrStatus("Compressing...");
+    setOcrStatus("Transcribing...");
     try {
       const base64Images = await Promise.all(files.map((file: File) => {
         return new Promise<string>((resolve) => {
@@ -561,7 +567,7 @@ const App: React.FC = () => {
       }));
 
       const compressed = await Promise.all(base64Images.map(img => compressImage(img)));
-      setOcrStatus("Analyzing Bill...");
+      setOcrStatus("Extracting Summary...");
       const result = await processGeneralBill(compressed);
       setScannedBillResult({ ...result, imageUrls: compressed });
     } catch (err) {
@@ -641,7 +647,7 @@ const App: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     setIsOcrLoading(true);
-    setOcrStatus("Compressing Statement...");
+    setOcrStatus("Transcribing Statement...");
     try {
       const base64 = await new Promise<string>(resolve => {
         const reader = new FileReader();
@@ -649,7 +655,7 @@ const App: React.FC = () => {
         reader.readAsDataURL(file);
       });
       const compressed = await compressImage(base64);
-      setOcrStatus("Extracting Transactions...");
+      setOcrStatus("Fetching Transactions...");
       const result = await processLoanScreenshot(compressed);
       if (result.transactions && result.transactions.length > 0) {
         setData(prev => {
@@ -862,7 +868,7 @@ const App: React.FC = () => {
                   className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-100 transition-all hover:scale-105 active:scale-95"
                 >
                   {isOcrLoading ? (
-                    <><span className="animate-spin text-xl">🌀</span> Processing...</>
+                    <><span className="animate-spin text-xl">🌀</span> Scanning...</>
                   ) : (
                     <><span className="text-xl">📷</span> Capture Bill(s)</>
                   )}
