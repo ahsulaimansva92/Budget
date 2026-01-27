@@ -205,6 +205,23 @@ const App: React.FC = () => {
     };
   }, [data]);
 
+  const groceryStats = useMemo(() => {
+    const stats: Record<string, { totalAmount: number; totalQuantity: number; avgUnitCost: number; itemCount: number }> = {};
+    data.groceryBills.forEach(bill => {
+      bill.items.forEach(item => {
+        const subId = item.subCategoryId || 'unassigned';
+        if (!stats[subId]) {
+          stats[subId] = { totalAmount: 0, totalQuantity: 0, avgUnitCost: 0, itemCount: 0 };
+        }
+        stats[subId].totalAmount += Number(item.totalCost);
+        stats[subId].totalQuantity += Number(item.quantity);
+        stats[subId].itemCount += 1;
+        stats[subId].avgUnitCost = stats[subId].totalAmount / (stats[subId].totalQuantity || 1);
+      });
+    });
+    return stats;
+  }, [data.groceryBills]);
+
   const categoryTotals = useMemo(() => {
     const catTotals: Record<string, number> = {};
     data.groceryBills.forEach(bill => {
@@ -491,8 +508,14 @@ const App: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <SummaryCard title="Total Bills Value" amount={totals.totalGrocerySpend} color="blue" />
                 <SummaryCard title="Verified Amount" amount={totals.totalVerifiedGroceryAmount} color="green" />
-                <SummaryCard title="Categorized Total" amount={totalCategorizedSpend} color={totals.totalGrocerySpend === totalCategorizedSpend ? "indigo" : "red"} subtitle={totals.totalGrocerySpend === totalCategorizedSpend ? "Full Reconciled ✅" : `Mismatch: Rs. ${(totals.totalGrocerySpend - totalCategorizedSpend).toLocaleString()} ❌`} />
+                <SummaryCard 
+                  title="Categorized Total" 
+                  amount={totalCategorizedSpend} 
+                  color={totals.totalGrocerySpend === totalCategorizedSpend ? "indigo" : "red"} 
+                  subtitle={totals.totalGrocerySpend === totalCategorizedSpend ? "Full Reconciled ✅" : `Mismatch: Rs. ${(totals.totalGrocerySpend - totalCategorizedSpend).toLocaleString()} ❌`} 
+                />
               </div>
+
               {unassignedItems.length > 0 && (
                 <div className="bg-amber-50 border-2 border-amber-200 p-6 rounded-[2rem] shadow-sm">
                   <h3 className="text-xl font-black text-slate-900 mb-4">Pending Categorization ({unassignedItems.length})</h3>
@@ -512,6 +535,43 @@ const App: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100">
+                <div className="flex justify-between items-center mb-8 border-b pb-4">
+                    <h3 className="text-xl font-black text-slate-900">Spend by Category Breakdown</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                  {data.groceryCategories.map(cat => (
+                    <div key={cat.id} className="p-6 rounded-2xl bg-slate-50 border border-slate-100 flex flex-col">
+                        <div className="flex justify-between items-start mb-6">
+                          <span className="text-[11px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-3 py-1 rounded-full">{cat.name}</span>
+                          <span className="text-xl font-black text-slate-900">Rs. {Number(categoryTotals[cat.id] || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="space-y-3 flex-1">
+                          {cat.subCategories.map(sub => {
+                            const stats = groceryStats[sub.id];
+                            if (!stats) return null;
+                            return (
+                              <div key={sub.id} className="text-xs flex flex-col gap-1 border-t border-slate-200/50 pt-3 mt-1 cursor-pointer hover:bg-white hover:rounded-xl p-2 transition-all group" onClick={() => setShowBreakupSubId(sub.id)}>
+                                <div className="flex justify-between font-bold text-slate-700 group-hover:text-indigo-600">
+                                  <span className="truncate pr-4">{sub.name}</span>
+                                  <span className="whitespace-nowrap">Rs. {Number(stats.totalAmount).toLocaleString()}</span>
+                                </div>
+                                <div className="flex justify-between text-[10px] text-slate-400 font-medium">
+                                  <span>Quantity: {Number(stats.totalQuantity).toFixed(1)}</span>
+                                  <span>Items: {stats.itemCount}</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {(!cat.subCategories.some(s => groceryStats[s.id])) && (
+                            <div className="text-[10px] text-slate-400 italic font-bold text-center py-4">No spend recorded</div>
+                          )}
+                        </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
@@ -625,6 +685,44 @@ const App: React.FC = () => {
               <div className="flex gap-4"><button onClick={() => setIsManualBillModalOpen(false)} className="px-8 py-4 rounded-2xl font-black text-xs uppercase text-slate-500 hover:bg-slate-100 transition-all">Cancel</button><button onClick={handleSaveManualBill} className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transform active:scale-95">Save Bill</button></div>
             </div>
           </div>
+        </div>
+      )}
+
+      {showBreakupSubId && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[90] flex items-center justify-center p-4">
+           <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
+              <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+                <div>
+                  <h3 className="text-2xl font-black text-slate-900 tracking-tight">Breakdown View</h3>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Detailed history for selected item type</p>
+                </div>
+                <button onClick={() => setShowBreakupSubId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
+              </div>
+              <div className="flex-1 overflow-auto p-8">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-100 sticky top-0 z-10">
+                    <tr>
+                      <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Date</th>
+                      <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Shop</th>
+                      <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest">Item Description</th>
+                      <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest text-right">Cost (Rs.)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.groceryBills.flatMap(bill => 
+                      bill.items.filter(it => it.subCategoryId === showBreakupSubId).map(item => (
+                        <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-4 py-4 text-xs font-bold text-slate-400">{bill.date}</td>
+                          <td className="px-4 py-4 text-sm font-black text-slate-700">{bill.shopName}</td>
+                          <td className="px-4 py-4 text-sm font-medium text-slate-600 italic">"{item.description}"</td>
+                          <td className="px-4 py-4 text-sm font-black text-indigo-700 text-right">Rs. {Number(item.totalCost).toLocaleString()}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+           </div>
         </div>
       )}
 
