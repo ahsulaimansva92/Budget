@@ -37,6 +37,12 @@ export interface SavingsEntry {
   date: string;
 }
 
+export interface IntSavingsData {
+  openingBalance: number;
+  additions: SavingsEntry[];
+  withdrawals: SavingsWithdrawal[];
+}
+
 export interface SavingsWithdrawal {
   id: string;
   amount: number;
@@ -132,11 +138,4 @@ export interface BudgetData {
   groceryBills: GroceryBill[];
   loans: LoanAccount[];
   mappingOverrides?: Record<string, CategoryOverride>;
-}
-
-// Internal fix for savings data type conflict if any
-export interface IntSavingsData {
-  openingBalance: number;
-  additions: SavingsEntry[];
-  withdrawals: SavingsWithdrawal[];
 }
