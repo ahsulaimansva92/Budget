@@ -824,7 +824,7 @@ const App: React.FC = () => {
                   className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-100 transition-all hover:scale-105 active:scale-95"
                 >
                   {isOcrLoading ? (
-                    <><span className="animate-spin text-xl">🌀</span> Processing...</>
+                    <><span className="animate-spin text-xl">🌀</span> Scanning...</>
                   ) : (
                     <><span className="text-xl">📷</span> Capture Bill(s)</>
                   )}
@@ -1400,8 +1400,8 @@ const App: React.FC = () => {
            <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl flex flex-col items-center gap-6">
               <div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
               <div className="text-center">
-                <h4 className="text-xl font-black text-slate-900">Processing Document...</h4>
-                <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">Gemini is extracting details</p>
+                <h4 className="text-xl font-black text-slate-900">Enhanced Vision Processing...</h4>
+                <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">AI is reconstructing details from your photo</p>
               </div>
            </div>
         </div>

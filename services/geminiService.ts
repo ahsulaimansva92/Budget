@@ -31,6 +31,7 @@ export const processGeneralBill = async (base64Images: string[]): Promise<any> =
   
   const prompt = `
     Analyze these bill/receipt image(s). They might be utility bills, invoices, or simple retail receipts.
+    Note: Images may be slightly blurry or unclear. Use logic and context to infer details.
     Extract the following information:
     - merchantName (e.g., CEB, Water Board, Shop name)
     - date (YYYY-MM-DD)
@@ -59,6 +60,7 @@ export const processGeneralBill = async (base64Images: string[]): Promise<any> =
         ]
       },
       config: {
+        thinkingConfig: { thinkingBudget: 2000 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -98,7 +100,14 @@ export const processGroceryBill = async (
     : "";
 
   const prompt = `
-    Analyze these grocery bill image(s). They may be multiple screenshots of the same long bill. Extract all items across all images.
+    Analyze these grocery bill image(s). 
+    CRITICAL: Some images may be blurry, low-resolution, or taken in low light. 
+    Use your advanced visual reasoning to:
+    1. RECONSTRUCT BLURRY TEXT: If an item name is pixelated, use grocery patterns (e.g., 'CHKN' is likely Chicken, 'TMTO' is Tomato) to reconstruct the full name.
+    2. MATHEMATICAL VALIDATION: Ensure (quantity * unitCost = totalCost). If one of these numbers is unclear, use the other two to mathematically infer the missing value.
+    3. CROSS-REFERENCE: If multiple photos are provided, piece together fragments from overlapping areas.
+    4. PARTIAL DATA: If you absolutely cannot read an item name, provide your best logical guess (e.g., "Unknown Fruit" if it looks like a fruit weight).
+
     For each item, determine its category and subcategory based on this list:
     ${categoryContext}
     
@@ -136,6 +145,8 @@ export const processGroceryBill = async (
         ]
       },
       config: {
+        // Enable a thinking budget to allow the model to reason about blurry text
+        thinkingConfig: { thinkingBudget: 4000 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -176,7 +187,7 @@ export const processLoanScreenshot = async (base64Image: string): Promise<any> =
   
   const prompt = `
     Analyze this screenshot containing financial loan or repayment transactions.
-    Extract every individual transaction found.
+    Extract every individual transaction found. Even if blurry, try to infer based on context.
     For each transaction, determine:
     1. Date (YYYY-MM-DD)
     2. Description/Reason (Be descriptive)
@@ -196,6 +207,7 @@ export const processLoanScreenshot = async (base64Image: string): Promise<any> =
         ]
       },
       config: {
+        thinkingConfig: { thinkingBudget: 2000 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
