@@ -25,6 +25,12 @@ export interface OneTimePayment {
   dueDate: string;
 }
 
+export interface IntSavingsEntry {
+  id: string;
+  amount: number;
+  date: string;
+}
+
 export interface SavingsEntry {
   id: string;
   amount: number;
@@ -40,7 +46,7 @@ export interface SavingsWithdrawal {
 
 export interface SavingsData {
   openingBalance: number;
-  additions: SavingsEntry[];
+  additions: IntSavingsEntry[];
   withdrawals: SavingsWithdrawal[];
 }
 
@@ -108,6 +114,7 @@ export interface GroceryBill {
   items: GroceryBillItem[];
   imageUrl?: string;
   totalAmount: number;
+  isVerified?: boolean;
 }
 
 export interface CategoryOverride {
@@ -119,10 +126,17 @@ export interface BudgetData {
   income: IncomeSource[];
   expenses: ExpenseItem[];
   oneTimePayments: OneTimePayment[];
-  savings: SavingsData;
+  savings: IntSavingsData;
   cash: CashData;
   groceryCategories: GroceryCategory[];
   groceryBills: GroceryBill[];
   loans: LoanAccount[];
   mappingOverrides?: Record<string, CategoryOverride>;
+}
+
+// Internal fix for savings data type conflict if any
+export interface IntSavingsData {
+  openingBalance: number;
+  additions: SavingsEntry[];
+  withdrawals: SavingsWithdrawal[];
 }

@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-  BudgetData, IncomeSource, ExpenseItem, OneTimePayment, SavingsEntry, SavingsWithdrawal, 
+  BudgetData, IncomeSource, ExpenseItem, OneTimePayment, IntSavingsEntry, SavingsWithdrawal, 
   CashEntry, GroceryCategory, GrocerySubCategory, GroceryBill, GroceryBillItem, CategoryOverride,
   LoanAccount, LoanTransaction, LoanTransactionType
 } from './types';
@@ -212,6 +212,9 @@ const App: React.FC = () => {
     const totalIncome = data.income.reduce((sum, item) => sum + Number(item.amount), 0);
     const recurringExpenses = data.expenses.reduce((sum, item) => sum + Number(item.amount), 0);
     const totalGrocerySpend = data.groceryBills.reduce((sum, bill) => sum + Number(bill.totalAmount), 0);
+    const totalVerifiedGroceryAmount = data.groceryBills
+      .filter(bill => bill.isVerified)
+      .reduce((sum, bill) => sum + Number(bill.totalAmount), 0);
     const totalExpenses = recurringExpenses + totalGrocerySpend;
     
     const salaryIncome = Number(data.income.find(i => i.name === 'Salary')?.amount || 0);
@@ -241,6 +244,7 @@ const App: React.FC = () => {
       savingsBalance,
       cashBalance: closingCashBalance,
       totalGrocerySpend,
+      totalVerifiedGroceryAmount,
       salaryIncome,
       rentIncome,
       salaryExpenses,
@@ -383,7 +387,7 @@ const App: React.FC = () => {
   };
 
   const handleAddSavingsAddition = () => {
-    const newEntry: SavingsEntry = { id: `sav-add-${Date.now()}`, amount: 0, date: new Date().toISOString().split('T')[0] };
+    const newEntry: IntSavingsEntry = { id: `sav-add-${Date.now()}`, amount: 0, date: new Date().toISOString().split('T')[0] };
     setData(prev => ({ ...prev, savings: { ...prev.savings, additions: [...prev.savings.additions, newEntry] } }));
   };
 
@@ -407,6 +411,7 @@ const App: React.FC = () => {
           shopName: result.shopName || 'Unknown Shop',
           imageUrl: base64,
           totalAmount: result.items.reduce((s: number, i: any) => s + Number(i.totalCost), 0),
+          isVerified: false,
           items: result.items.map((i: any) => {
             const cat = data.groceryCategories.find(c => c.name === i.categoryName);
             const sub = cat?.subCategories.find(s => s.name === i.subCategoryName);
@@ -444,6 +449,13 @@ const App: React.FC = () => {
     }
   };
 
+  const handleToggleVerifyBill = (billId: string) => {
+    setData(prev => ({
+      ...prev,
+      groceryBills: prev.groceryBills.map(bill => bill.id === billId ? { ...bill, isVerified: !bill.isVerified } : bill)
+    }));
+  };
+
   const handleSaveManualBill = () => {
     if (!manualBillData.shopName || manualBillData.items.length === 0) {
       alert("Please enter a shop name and at least one item.");
@@ -457,6 +469,7 @@ const App: React.FC = () => {
       shopName: manualBillData.shopName,
       date: manualBillData.date,
       totalAmount,
+      isVerified: false,
       items: manualBillData.items.map(item => ({
         id: item.id || `m-item-${Math.random()}`,
         description: item.description || 'Unnamed Item',
@@ -956,8 +969,9 @@ const App: React.FC = () => {
 
           {grocerySubTab === 'analysis' && (
             <div className="space-y-8 animate-in fade-in slide-in-from-left-4 duration-300">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <SummaryCard title="Total Bills Value" amount={totals.totalGrocerySpend} color="blue" />
+                <SummaryCard title="Verified Amount" amount={totals.totalVerifiedGroceryAmount} color="green" />
                 <SummaryCard 
                   title="Total Categorized" 
                   amount={totalCategorizedSpend} 
@@ -1035,6 +1049,10 @@ const App: React.FC = () => {
           {grocerySubTab === 'bills' && (
             <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <SummaryCard title="Verified Total" amount={totals.totalVerifiedGroceryAmount} color="green" />
+                <SummaryCard title="Unverified Total" amount={totals.totalGrocerySpend - totals.totalVerifiedGroceryAmount} color="red" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {data.groceryBills.length === 0 ? (
                   <div className="col-span-full py-20 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
                     <div className="text-5xl mb-4 opacity-30">📂</div>
@@ -1042,7 +1060,16 @@ const App: React.FC = () => {
                   </div>
                 ) : (
                   data.groceryBills.map(bill => (
-                    <div key={bill.id} className="bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden group hover:shadow-xl transition-all relative">
+                    <div key={bill.id} className={`bg-white rounded-3xl shadow-lg border-2 transition-all relative group overflow-hidden ${bill.isVerified ? 'border-green-500 shadow-green-50' : 'border-slate-100 hover:border-indigo-100'}`}>
+                      <div className="absolute top-4 left-4 z-20 flex items-center">
+                        <input 
+                          type="checkbox" 
+                          checked={bill.isVerified || false}
+                          onChange={() => handleToggleVerifyBill(bill.id)}
+                          className="w-6 h-6 accent-green-600 cursor-pointer shadow-md rounded-md"
+                          title="Verify Bill"
+                        />
+                      </div>
                       <button 
                         onClick={() => handleDeleteBill(bill.id)}
                         className="absolute top-4 right-4 z-20 bg-white/90 p-2 rounded-xl text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-lg opacity-0 group-hover:opacity-100"
@@ -1052,23 +1079,26 @@ const App: React.FC = () => {
                       </button>
                       <div className="relative h-40 bg-slate-100">
                           {bill.imageUrl ? (
-                            <img src={bill.imageUrl} className="w-full h-full object-cover opacity-60 grayscale group-hover:grayscale-0 transition-all duration-500" />
+                            <img src={bill.imageUrl} className={`w-full h-full object-cover transition-all duration-500 ${bill.isVerified ? 'opacity-100 grayscale-0' : 'opacity-60 grayscale group-hover:grayscale-0'}`} />
                           ) : (
                             <div className="flex items-center justify-center h-full text-slate-300 font-bold bg-slate-200 text-6xl">🧾</div>
                           )}
-                          <div className="absolute inset-0 p-4 flex flex-col justify-end bg-gradient-to-t from-black/60 to-transparent">
-                            <h4 className="text-white font-black text-lg">{bill.shopName}</h4>
+                          <div className={`absolute inset-0 p-4 flex flex-col justify-end bg-gradient-to-t from-black/70 to-transparent ${bill.isVerified ? 'from-green-900/80' : ''}`}>
+                            <div className="flex items-center gap-2">
+                              <h4 className="text-white font-black text-lg truncate">{bill.shopName}</h4>
+                              {bill.isVerified && <span className="text-green-400 text-xl">✅</span>}
+                            </div>
                             <p className="text-white/80 text-xs font-bold uppercase tracking-widest">{bill.date}</p>
                           </div>
                       </div>
-                      <div className="p-5 flex justify-between items-center bg-white">
+                      <div className={`p-5 flex justify-between items-center bg-white ${bill.isVerified ? 'bg-green-50/50' : ''}`}>
                           <div>
                             <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Total Bill</p>
-                            <p className="text-xl font-black text-indigo-700">Rs. {Number(bill.totalAmount).toLocaleString()}</p>
+                            <p className={`text-xl font-black ${bill.isVerified ? 'text-green-700' : 'text-indigo-700'}`}>Rs. {Number(bill.totalAmount).toLocaleString()}</p>
                           </div>
                           <button 
                             onClick={() => setShowAuditBillId(bill.id)}
-                            className="bg-slate-50 hover:bg-slate-100 text-slate-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-slate-200 transition-colors"
+                            className={`bg-slate-50 hover:bg-slate-100 text-slate-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-slate-200 transition-colors ${bill.isVerified ? 'bg-white border-green-200 text-green-700' : ''}`}
                           >
                             View Audit
                           </button>
