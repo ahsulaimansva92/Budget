@@ -469,21 +469,36 @@ const App: React.FC = () => {
     }));
   };
 
+  const handleDeleteBill = (billId: string) => {
+    if (confirm("Permanently delete this bill from archives?")) {
+      setData(prev => ({ ...prev, groceryBills: prev.groceryBills.filter(b => b.id !== billId) }));
+    }
+  };
+
+  // Helper for updating manual bill entry items
+  const updateManualBillItem = (id: string, updates: Partial<GroceryBillItem>) => {
+    setManualBillData(prev => ({
+      ...prev,
+      items: prev.items.map(it => it.id === id ? { ...it, ...updates } : it)
+    }));
+  };
+
   const handleSaveManualBill = () => {
     if (!manualBillData.shopName || manualBillData.items.length === 0) {
       alert("Please enter shop name and items.");
       return;
     }
+    const totalAmount = manualBillData.items.reduce((s, i) => s + (Number(i.totalCost) || 0), 0);
     const newBill: GroceryBill = {
       id: `bill-manual-${Date.now()}`,
       date: manualBillData.date,
       shopName: manualBillData.shopName,
-      totalAmount: manualBillData.items.reduce((s, i) => s + (Number(i.totalCost) || 0), 0),
+      totalAmount,
       isVerified: true,
       items: manualBillData.items.map(i => ({
         id: i.id || `item-${Math.random()}`,
         description: i.description || 'Manual Entry',
-        quantity: i.quantity || 0,
+        quantity: Number(i.quantity) || 0,
         unit: i.unit || 'unit',
         unitCost: (Number(i.totalCost) || 0) / (Number(i.quantity) || 1),
         totalCost: Number(i.totalCost) || 0,
@@ -498,6 +513,37 @@ const App: React.FC = () => {
       date: new Date().toISOString().split('T')[0],
       items: [{ id: `m-item-${Date.now()}`, description: '', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }]
     });
+  };
+
+  // Helper for editing an existing bill in the Audit modal
+  const updateExistingBill = (billId: string, updates: Partial<GroceryBill>) => {
+    setData(prev => ({
+      ...prev,
+      groceryBills: prev.groceryBills.map(b => {
+        if (b.id !== billId) return b;
+        const updatedBill = { ...b, ...updates };
+        // If items changed, re-calculate grand total
+        if (updates.items) {
+          updatedBill.totalAmount = updates.items.reduce((s, i) => s + Number(i.totalCost || 0), 0);
+        }
+        return updatedBill;
+      })
+    }));
+  };
+
+  const updateExistingBillItem = (billId: string, itemId: string, updates: Partial<GroceryBillItem>) => {
+    setData(prev => ({
+      ...prev,
+      groceryBills: prev.groceryBills.map(b => {
+        if (b.id !== billId) return b;
+        const newItems = b.items.map(it => it.id === itemId ? { ...it, ...updates } : it);
+        return {
+          ...b,
+          items: newItems,
+          totalAmount: newItems.reduce((s, i) => s + Number(i.totalCost || 0), 0)
+        };
+      })
+    }));
   };
 
   return (
@@ -645,7 +691,7 @@ const App: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <SummaryCard title="Total Bills Value" amount={totals.totalGrocerySpend} color="blue" />
                 <SummaryCard title="Verified Amount" amount={totals.totalVerifiedGroceryAmount} color="green" />
-                <SummaryCard title="Categorized Total" amount={totalCategorizedSpend} color={totals.totalGrocerySpend === totalCategorizedSpend ? "indigo" : "red"} />
+                <SummaryCard title="Categorized Total" amount={totalCategorizedSpend} color={totals.totalGrocerySpend === totalCategorizedSpend ? "indigo" : "red"} subtitle={totals.totalGrocerySpend === totalCategorizedSpend ? "Full Reconciled ✅" : `Mismatch: Rs. ${(totals.totalGrocerySpend - totalCategorizedSpend).toLocaleString()} ❌`} />
               </div>
               <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -668,21 +714,42 @@ const App: React.FC = () => {
           )}
           {grocerySubTab === 'bills' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {data.groceryBills.map(bill => (
-                <div key={bill.id} className={`bg-white rounded-3xl shadow-lg border-2 overflow-hidden group ${bill.isVerified ? 'border-green-500' : 'border-slate-100'}`}>
-                  <div className="h-40 bg-slate-100 relative">
-                    {bill.imageUrls && bill.imageUrls.length > 0 ? <img src={bill.imageUrls[0]} className="w-full h-full object-cover" /> : <div className="flex items-center justify-center h-full text-slate-300 font-bold bg-slate-200 text-6xl">✍️</div>}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent p-4 flex flex-col justify-end text-white"><h4 className="font-black truncate">{bill.shopName}</h4><p className="text-xs font-bold">{bill.date}</p></div>
-                  </div>
-                  <div className="p-4 flex justify-between items-center bg-white">
-                    <div><p className="text-[10px] font-black text-slate-400 uppercase">Amount</p><p className="text-lg font-black text-indigo-700">Rs. {bill.totalAmount.toLocaleString()}</p></div>
-                    <div className="flex gap-2">
-                      <button onClick={() => handleToggleVerifyBill(bill.id)} className={`p-2 rounded-xl border ${bill.isVerified ? 'bg-green-600 border-green-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>✅</button>
-                      <button onClick={() => setShowAuditBillId(bill.id)} className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 text-xs font-black uppercase">Audit</button>
+              {data.groceryBills.length === 0 ? (
+                <div className="col-span-full py-20 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
+                  <p className="text-slate-400 font-black uppercase tracking-widest">No bills archived yet</p>
+                </div>
+              ) : (
+                data.groceryBills.map(bill => (
+                  <div key={bill.id} className={`bg-white rounded-3xl shadow-lg border-2 transition-all relative group overflow-hidden ${bill.isVerified ? 'border-green-500 shadow-green-50' : 'border-slate-100 hover:border-indigo-100'}`}>
+                    <div className="absolute top-4 left-4 z-20">
+                      <input type="checkbox" checked={bill.isVerified || false} onChange={() => handleToggleVerifyBill(bill.id)} className="w-6 h-6 accent-green-600 cursor-pointer shadow-md rounded-md" title="Verify Bill" />
+                    </div>
+                    <button onClick={() => handleDeleteBill(bill.id)} className="absolute top-4 right-4 z-20 bg-white/90 p-2 rounded-xl text-red-500 hover:bg-red-500 hover:text-white opacity-0 group-hover:opacity-100 transition-all shadow-lg">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                    <div className="relative h-40 bg-slate-100">
+                      {bill.imageUrls && bill.imageUrls.length > 0 ? (
+                        <div className="relative w-full h-full">
+                          <img src={bill.imageUrls[0]} className={`w-full h-full object-cover transition-all ${bill.isVerified ? 'grayscale-0' : 'grayscale'}`} />
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-slate-300 font-bold bg-slate-200 text-6xl">✍️</div>
+                      )}
+                      <div className={`absolute inset-0 p-4 flex flex-col justify-end bg-gradient-to-t from-black/70 to-transparent ${bill.isVerified ? 'from-green-900/80' : ''}`}>
+                        <h4 className="text-white font-black text-lg truncate">{bill.shopName} {bill.isVerified && '✅'}</h4>
+                        <p className="text-white/80 text-xs font-bold uppercase tracking-widest">{bill.date}</p>
+                      </div>
+                    </div>
+                    <div className={`p-5 flex justify-between items-center bg-white ${bill.isVerified ? 'bg-green-50/30' : ''}`}>
+                      <div>
+                        <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Bill Amount</p>
+                        <p className={`text-xl font-black ${bill.isVerified ? 'text-green-700' : 'text-indigo-700'}`}>Rs. {Number(bill.totalAmount).toLocaleString()}</p>
+                      </div>
+                      <button onClick={() => setShowAuditBillId(bill.id)} className="bg-slate-50 hover:bg-slate-100 text-slate-600 px-4 py-2 rounded-xl text-xs font-black uppercase border border-slate-200">Audit</button>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           )}
         </div>
@@ -782,27 +849,32 @@ const App: React.FC = () => {
                 <div className="space-y-3">
                   {manualBillData.items.map(item => (
                     <div key={item.id} className="grid grid-cols-12 gap-3 items-center bg-slate-50/50 p-3 rounded-2xl border border-slate-100 group">
-                      <input placeholder="Item Description" value={item.description} onChange={(e) => setManualBillData(prev => ({ ...prev, items: prev.items.map(it => it.id === item.id ? { ...it, description: e.target.value } : it) }))} className="col-span-4 bg-white border-none rounded-lg text-sm font-bold p-2 focus:ring-2 focus:ring-indigo-100" />
-                      <input type="number" placeholder="Qty" value={item.quantity || ''} onChange={(e) => setManualBillData(prev => ({ ...prev, items: prev.items.map(it => it.id === item.id ? { ...it, quantity: e.target.value === '' ? 0 : Number(e.target.value) } : it) }))} className="col-span-1 bg-white border-none rounded-lg text-sm font-bold p-2 text-center focus:ring-2 focus:ring-indigo-100" />
+                      <input 
+                        placeholder="Item Description" 
+                        value={item.description} 
+                        onChange={(e) => updateManualBillItem(item.id!, { description: e.target.value })} 
+                        className="col-span-4 bg-white border-none rounded-lg text-sm font-bold p-2 focus:ring-2 focus:ring-indigo-100" 
+                      />
+                      <input 
+                        type="number" 
+                        placeholder="Qty" 
+                        value={item.quantity || ''} 
+                        onChange={(e) => updateManualBillItem(item.id!, { quantity: e.target.value === '' ? 0 : parseFloat(e.target.value) })} 
+                        className="col-span-1 bg-white border-none rounded-lg text-sm font-bold p-2 text-center focus:ring-2 focus:ring-indigo-100" 
+                      />
                       <div className="col-span-3">
                         <SearchableCategoryDropdown 
                           placeholder="Categorize" 
                           currentValue={`${item.categoryId}|${item.subCategoryId}`} 
                           categories={data.groceryCategories} 
-                          onSelect={(catId, subCatId) => { setManualBillData(prev => ({ ...prev, items: prev.items.map(it => it.id === item.id ? { ...it, categoryId: catId, subCategoryId: subCatId } : it) })); }} 
+                          onSelect={(catId, subCatId) => updateManualBillItem(item.id!, { categoryId: catId, subCategoryId: subCatId })} 
                         />
                       </div>
                       <input 
                         type="number" 
-                        placeholder="Amount" 
+                        placeholder="Total Cost" 
                         value={item.totalCost || ''} 
-                        onChange={(e) => {
-                          const val = e.target.value === '' ? 0 : Number(e.target.value);
-                          setManualBillData(prev => ({ 
-                            ...prev, 
-                            items: prev.items.map(it => it.id === item.id ? { ...it, totalCost: val } : it) 
-                          }));
-                        }} 
+                        onChange={(e) => updateManualBillItem(item.id!, { totalCost: e.target.value === '' ? 0 : parseFloat(e.target.value) })} 
                         className="col-span-3 bg-white border-none rounded-lg text-sm font-black p-2 text-right focus:ring-2 focus:ring-indigo-100" 
                       />
                       <button onClick={() => setManualBillData(prev => ({ ...prev, items: prev.items.filter(it => it.id !== item.id) }))} className="col-span-1 text-slate-300 hover:text-red-500 text-center opacity-0 group-hover:opacity-100">✕</button>
@@ -814,6 +886,90 @@ const App: React.FC = () => {
             <div className="p-8 bg-slate-50 border-t flex justify-between items-center">
               <div><span className="text-[10px] font-black text-slate-400 uppercase block">Total</span><span className="text-3xl font-black text-slate-900">Rs. {manualBillData.items.reduce((s, i) => s + (Number(i.totalCost) || 0), 0).toLocaleString()}</span></div>
               <div className="flex gap-4"><button onClick={() => setIsManualBillModalOpen(false)} className="px-8 py-4 rounded-2xl font-black text-xs uppercase text-slate-500 hover:bg-slate-100 transition-all">Cancel</button><button onClick={handleSaveManualBill} className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transform active:scale-95">Save Bill</button></div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAuditBillId && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95">
+            <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+              <h3 className="text-2xl font-black text-slate-900 tracking-tight">Edit & Audit Bill</h3>
+              <button onClick={() => setShowAuditBillId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
+            </div>
+            <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-2 gap-10">
+              <div className="space-y-6">
+                <div className="space-y-4">
+                  <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Bill Details</h4>
+                  <div className="space-y-3">
+                    <input 
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black text-slate-800 focus:ring-2 focus:ring-indigo-100 outline-none" 
+                      value={data.groceryBills.find(b => b.id === showAuditBillId)?.shopName || ''}
+                      onChange={(e) => updateExistingBill(showAuditBillId, { shopName: e.target.value })}
+                    />
+                    <input 
+                      type="date"
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-500 focus:ring-2 focus:ring-indigo-100 outline-none" 
+                      value={data.groceryBills.find(b => b.id === showAuditBillId)?.date || ''}
+                      onChange={(e) => updateExistingBill(showAuditBillId, { date: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Attached Screenshot</h4>
+                <div className="space-y-4 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
+                  {data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls?.map((url, i) => (
+                    <div key={i} className="rounded-2xl border-2 border-slate-100 overflow-hidden shadow-sm bg-slate-100">
+                      <img src={url} className="w-full" alt={`Receipt part ${i + 1}`} />
+                    </div>
+                  ))}
+                  {(!data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls || data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls?.length === 0) && (
+                    <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl h-64 flex flex-col items-center justify-center text-slate-300">
+                      <div className="text-5xl mb-2">✍️</div>
+                      <p className="font-black text-xs uppercase">Manual Entry (No Photo)</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div className="flex justify-between items-center"><h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Extracted Items</h4><span className="text-[10px] font-black text-indigo-500 uppercase">Grand Total: Rs. {Number(data.groceryBills.find(b => b.id === showAuditBillId)?.totalAmount || 0).toLocaleString()}</span></div>
+                <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                  {data.groceryBills.find(b => b.id === showAuditBillId)?.items.map(item => (
+                    <div key={item.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3 group hover:border-indigo-200 transition-all">
+                      <input 
+                        className="w-full bg-transparent border-none p-0 text-sm font-bold text-slate-700 focus:ring-0" 
+                        value={item.description}
+                        onChange={(e) => updateExistingBillItem(showAuditBillId, item.id, { description: e.target.value })}
+                      />
+                      <div className="flex items-center gap-4">
+                        <div className="flex-1 flex flex-col">
+                          <label className="text-[8px] font-black text-slate-400 uppercase mb-1">Quantity</label>
+                          <input 
+                            type="number"
+                            className="w-full bg-white border border-slate-100 rounded-lg p-1 text-xs font-bold text-slate-500 focus:ring-2 focus:ring-indigo-100" 
+                            value={item.quantity || ''}
+                            onChange={(e) => updateExistingBillItem(showAuditBillId, item.id, { quantity: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                          />
+                        </div>
+                        <div className="flex-1 flex flex-col">
+                          <label className="text-[8px] font-black text-slate-400 uppercase mb-1">Total Cost (LKR)</label>
+                          <input 
+                            type="number"
+                            className="w-full bg-indigo-50 border border-indigo-100 rounded-lg p-1 text-xs font-black text-indigo-700 focus:ring-2 focus:ring-indigo-200" 
+                            value={item.totalCost || ''}
+                            onChange={(e) => updateExistingBillItem(showAuditBillId, item.id, { totalCost: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                          />
+                        </div>
+                      </div>
+                      <SearchableCategoryDropdown 
+                        currentValue={`${item.categoryId}|${item.subCategoryId}`} 
+                        categories={data.groceryCategories} 
+                        onSelect={(catId, subCatId) => handleCategorizeItem(showAuditBillId, item.id, catId, subCatId)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
         </div>
