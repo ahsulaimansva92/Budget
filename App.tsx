@@ -10,7 +10,6 @@ import Layout from './components/Layout';
 import SummaryCard from './components/SummaryCard';
 import { analyzeBudget, processGroceryBill, processGeneralBill, processLoanScreenshot } from './services/geminiService';
 
-// Helper to compress and resize images for faster API processing
 const compressImage = async (base64Str: string, maxWidth = 1280, quality = 0.6): Promise<string> => {
   return new Promise((resolve) => {
     const img = new Image();
@@ -171,18 +170,17 @@ const App: React.FC = () => {
   const [showAuditBillId, setShowAuditBillId] = useState<string | null>(null);
   const [showBreakupSubId, setShowBreakupSubId] = useState<string | null>(null);
   const [isManualBillModalOpen, setIsManualBillModalOpen] = useState(false);
-  const [scannedBillResult, setScannedBillResult] = useState<any | null>(null);
 
   const [manualBillData, setManualBillData] = useState<{
     shopName: string;
     date: string;
-    totalAmount: number | string;
+    totalAmount: number;
     items: Array<Partial<GroceryBillItem>>;
   }>({
     shopName: '',
     date: new Date().toISOString().split('T')[0],
     totalAmount: 0,
-    items: [{ id: `m-item-${Date.now()}`, description: 'General Items', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }]
+    items: [{ id: `m-item-${Date.now()}`, description: 'Item 1', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }]
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -280,72 +278,88 @@ const App: React.FC = () => {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
     if (files.length === 0) return;
-    const base64Images = await Promise.all(files.map(file => new Promise<string>(resolve => {
-      const r = new FileReader(); r.onload = ev => resolve(ev.target?.result as string); r.readAsDataURL(file);
-    })));
-    processImagesForGrocery(base64Images);
-    e.target.value = '';
+    setIsOcrLoading(true);
+    setOcrStatus("Processing Images...");
+    try {
+      const base64Images = await Promise.all(files.map(file => new Promise<string>(resolve => {
+        const r = new FileReader(); r.onload = ev => resolve(ev.target?.result as string); r.readAsDataURL(file);
+      })));
+      await processImagesForGrocery(base64Images);
+    } catch (err) { 
+      console.error(err);
+      alert("OCR failed. Try again with clearer images."); 
+    }
+    finally { setIsOcrLoading(false); e.target.value = ''; }
   };
 
   const processImagesForGrocery = async (base64Images: string[]) => {
-    setIsOcrLoading(true);
-    setOcrStatus("Transcribing Table...");
+    setOcrStatus("Transcribing Multi-part Bill...");
     try {
       const compressedImages = await Promise.all(base64Images.map(img => compressImage(img)));
-      setOcrStatus("Capturing Item Data...");
       const result = await processGroceryBill(compressedImages, data.groceryCategories, data.mappingOverrides || {});
+      
+      const newBillId = `bill-ocr-${Date.now()}`;
       const newBill: GroceryBill = {
-        id: `bill-ocr-${Date.now()}`,
+        id: newBillId,
         date: result.date || new Date().toISOString().split('T')[0],
         shopName: result.shopName || 'Unknown Shop',
         imageUrls: compressedImages,
-        totalAmount: result.items.reduce((s: number, i: any) => s + Number(i.totalCost), 0),
+        totalAmount: result.items.reduce((s: number, i: any) => s + (Number(i.totalCost) || 0), 0),
         isVerified: false,
         items: result.items.map((i: any) => {
           const cat = data.groceryCategories.find(c => c.name === i.categoryName);
           const sub = cat?.subCategories.find(s => s.name === i.subCategoryName);
           return {
             id: `item-${Math.random()}`,
-            description: i.description, quantity: Number(i.quantity), unit: i.unit,
-            unitCost: Number(i.unitCost), totalCost: Number(i.totalCost),
-            categoryId: cat?.id || 'unassigned', subCategoryId: sub?.id || 'unassigned'
+            description: i.description, 
+            quantity: Number(i.quantity) || 1, 
+            unit: i.unit || 'unit',
+            unitCost: Number(i.unitCost) || 0, 
+            totalCost: Number(i.totalCost) || 0,
+            categoryId: cat?.id || 'unassigned', 
+            subCategoryId: sub?.id || 'unassigned'
           };
         })
       };
+      
       setData(prev => ({ ...prev, groceryBills: [newBill, ...prev.groceryBills] }));
       setGrocerySubTab('bills');
-    } catch (err) { alert("Bill Capture Failed."); console.error(err); } 
-    finally { setIsOcrLoading(false); setOcrStatus("Preparing Document..."); }
+      setShowAuditBillId(newBillId); // Force verification
+    } catch (err) { alert("Multi-part Scan Failed."); console.error(err); } 
   };
 
   const handleGeneralScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []) as File[];
     if (files.length === 0) return;
     setIsOcrLoading(true);
-    setOcrStatus("Transcribing...");
+    setOcrStatus("Analyzing Summary...");
     try {
       const base64Images = await Promise.all(files.map(file => new Promise<string>(resolve => {
         const r = new FileReader(); r.onload = ev => resolve(ev.target?.result as string); r.readAsDataURL(file);
       })));
       const compressed = await Promise.all(base64Images.map(img => compressImage(img)));
-      setOcrStatus("Extracting Summary...");
       const result = await processGeneralBill(compressed);
-      setScannedBillResult({ ...result, imageUrls: compressed });
+      alert(`Scanned: ${result.merchantName}\nAmount: Rs. ${result.amount}\nDate: ${result.date}`);
     } catch (err) { alert("Scan Failed."); } 
-    finally { setIsOcrLoading(false); setOcrStatus("Preparing Document..."); e.target.value = ''; }
+    finally { setIsOcrLoading(false); e.target.value = ''; }
   };
 
   const handleCategorizeItem = (billId: string, itemId: string, catId: string, subCatId: string) => {
     const cat = data.groceryCategories.find(c => c.id === catId);
     const sub = cat?.subCategories.find(s => s.id === subCatId);
     setData(prev => {
-      const item = prev.groceryBills.find(b => b.id === billId)?.items.find(i => i.id === itemId);
+      const bill = prev.groceryBills.find(b => b.id === billId);
+      const item = bill?.items.find(i => i.id === itemId);
       const rawDesc = item?.rawDescription || item?.description;
       const newOverrides = { ...(prev.mappingOverrides || {}) };
       if (rawDesc && cat && sub) newOverrides[rawDesc] = { categoryName: cat.name, subCategoryName: sub.name };
       return {
-        ...prev, mappingOverrides: newOverrides,
-        groceryBills: prev.groceryBills.map(b => b.id !== billId ? b : { ...b, items: b.items.map(it => it.id === itemId ? { ...it, categoryId: catId, subCategoryId: subCatId } : it) })
+        ...prev, 
+        mappingOverrides: newOverrides,
+        groceryBills: prev.groceryBills.map(b => b.id !== billId ? b : { 
+          ...b, 
+          items: b.items.map(it => it.id === itemId ? { ...it, categoryId: catId, subCategoryId: subCatId } : it) 
+        })
       };
     });
   };
@@ -355,12 +369,6 @@ const App: React.FC = () => {
       ...prev,
       groceryBills: prev.groceryBills.map(b => b.id === billId ? { ...b, isVerified: !b.isVerified } : b)
     }));
-  };
-
-  const handleDeleteBill = (billId: string) => {
-    if (confirm("Permanently delete this bill from archives?")) {
-      setData(prev => ({ ...prev, groceryBills: prev.groceryBills.filter(b => b.id !== billId) }));
-    }
   };
 
   const updateManualBillItem = (id: string, updates: Partial<GroceryBillItem>) => {
@@ -375,33 +383,21 @@ const App: React.FC = () => {
     });
   };
 
-  const handleManualTotalChange = (val: string) => {
-    const num = val === '' ? 0 : parseFloat(val);
-    setManualBillData(prev => {
-      const updatedItems = [...prev.items];
-      if (updatedItems.length > 0) {
-        updatedItems[0] = { ...updatedItems[0], totalCost: num };
-      }
-      return { ...prev, items: updatedItems, totalAmount: val === '' ? '' : num };
-    });
-  };
-
   const handleSaveManualBill = () => {
     if (!manualBillData.shopName || manualBillData.items.length === 0) {
-      alert("Please enter shop name and items.");
+      alert("Please enter shop name and add items with prices.");
       return;
     }
-    const total = Number(manualBillData.totalAmount) || 0;
     const newBill: GroceryBill = {
       id: `bill-manual-${Date.now()}`,
       date: manualBillData.date,
       shopName: manualBillData.shopName,
-      totalAmount: total,
+      totalAmount: manualBillData.totalAmount,
       isVerified: true,
       items: manualBillData.items.map(i => ({
         id: i.id || `item-${Math.random()}`,
         description: i.description || 'Manual Entry',
-        quantity: Number(i.quantity) || 0,
+        quantity: Number(i.quantity) || 1,
         unit: i.unit || 'unit',
         unitCost: (Number(i.totalCost) || 0) / (Number(i.quantity) || 1),
         totalCost: Number(i.totalCost) || 0,
@@ -415,7 +411,7 @@ const App: React.FC = () => {
       shopName: '',
       date: new Date().toISOString().split('T')[0],
       totalAmount: 0,
-      items: [{ id: `m-item-${Date.now()}`, description: 'General Items', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }]
+      items: [{ id: `m-item-${Date.now()}`, description: 'Item 1', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }]
     });
   };
 
@@ -435,10 +431,22 @@ const App: React.FC = () => {
         return {
           ...b,
           items: newItems,
-          totalAmount: newItems.reduce((s, i) => s + Number(i.totalCost || 0), 0)
+          totalAmount: newItems.reduce((s, i) => s + (Number(i.totalCost) || 0), 0)
         };
       })
     }));
+  };
+
+  // Added handleDeleteBill to resolve the reference error on line 904.
+  const handleDeleteBill = (billId: string | null) => {
+    if (!billId) return;
+    if (window.confirm("Are you sure you want to delete this bill?")) {
+      setData(prev => ({
+        ...prev,
+        groceryBills: prev.groceryBills.filter(b => b.id !== billId)
+      }));
+      setShowAuditBillId(null);
+    }
   };
 
   const subCategoryBreakupItems = useMemo(() => {
@@ -467,7 +475,7 @@ const App: React.FC = () => {
   return (
     <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
       <input type="file" multiple accept="image/*" ref={generalScanInputRef} onChange={handleGeneralScan} className="hidden" />
-      <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+      <input type="file" multiple accept="image/*" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
 
       {activeTab === 'dashboard' && (
         <div className="space-y-10 animate-in fade-in duration-500">
@@ -671,7 +679,7 @@ const App: React.FC = () => {
               <div className="flex justify-between items-center mb-8">
                 <div>
                   <h3 className="text-2xl font-black text-slate-900 tracking-tight">Manage Grocery Categories</h3>
-                  <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mt-1">Define classification for spending analysis</p>
+                  <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mt-1">Classification for spend analysis</p>
                 </div>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -683,7 +691,7 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {cat.subCategories.map(sub => (
-                        <div key={sub.id} className="bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 flex items-center gap-2 shadow-sm">
+                        <div key={sub.id} className="bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600">
                           {sub.name}
                         </div>
                       ))}
@@ -703,39 +711,31 @@ const App: React.FC = () => {
             <div className="p-8 border-b flex justify-between items-center bg-slate-50">
               <div>
                 <h3 className="text-2xl font-black text-slate-900">{currentBreakupSubLabel}</h3>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Itemized Spending History</p>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Detailed Item History</p>
               </div>
               <button onClick={() => setShowBreakupSubId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
             </div>
             <div className="flex-1 overflow-auto p-8">
-              {subCategoryBreakupItems.length === 0 ? (
-                <div className="text-center py-10">
-                  <p className="text-slate-400 font-bold italic text-sm">No items found for this sub-category.</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <table className="w-full text-left border-collapse">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b">Date</th>
-                        <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b">Shop</th>
-                        <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b">Item Description</th>
-                        <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b text-right">Cost</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {subCategoryBreakupItems.map(({ bill, item }) => (
-                        <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-4 py-3 text-xs font-bold text-slate-400">{bill.date}</td>
-                          <td className="px-4 py-3 text-xs font-black text-slate-800">{bill.shopName}</td>
-                          <td className="px-4 py-3 text-xs font-semibold text-slate-600">{item.description}</td>
-                          <td className="px-4 py-3 text-xs font-black text-indigo-700 text-right">Rs. {Number(item.totalCost).toLocaleString()}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b">Date</th>
+                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b">Merchant</th>
+                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b">Item Description</th>
+                    <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b text-right">Cost (LKR)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {subCategoryBreakupItems.map(({ bill, item }) => (
+                    <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-4 py-3 text-xs font-bold text-slate-400">{bill.date}</td>
+                      <td className="px-4 py-3 text-xs font-black text-slate-800">{bill.shopName}</td>
+                      <td className="px-4 py-3 text-xs font-semibold text-slate-600">{item.description}</td>
+                      <td className="px-4 py-3 text-xs font-black text-indigo-700 text-right">Rs. {Number(item.totalCost).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
             <div className="p-8 bg-slate-50 border-t flex justify-between items-center">
               <span className="text-[10px] font-black text-slate-400 uppercase">Sub-category Total</span>
@@ -751,8 +751,8 @@ const App: React.FC = () => {
           <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
             <div className="p-8 border-b flex justify-between items-center bg-slate-50">
               <div>
-                <h3 className="text-2xl font-black text-slate-900">Manual Bill Entry</h3>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Record a purchase without a receipt photo</p>
+                <h3 className="text-2xl font-black text-slate-900">Manual Entry</h3>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Record items manually without OCR</p>
               </div>
               <button onClick={() => setIsManualBillModalOpen(false)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
             </div>
@@ -760,7 +760,7 @@ const App: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
                 <div className="flex flex-col gap-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Shop Name</label>
-                  <input type="text" placeholder="e.g. Arpico, Keells..." value={manualBillData.shopName} onChange={(e) => setManualBillData(prev => ({ ...prev, shopName: e.target.value }))} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none shadow-sm focus:ring-2 focus:ring-indigo-100" />
+                  <input type="text" placeholder="e.g. Arpico" value={manualBillData.shopName} onChange={(e) => setManualBillData(prev => ({ ...prev, shopName: e.target.value }))} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none shadow-sm focus:ring-2 focus:ring-indigo-100" />
                 </div>
                 <div className="flex flex-col gap-2">
                   <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Date</label>
@@ -769,24 +769,24 @@ const App: React.FC = () => {
               </div>
               <div className="space-y-4">
                 <div className="flex justify-between items-center border-b pb-3">
-                  <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Bill Items</h4>
-                  <button onClick={() => setManualBillData(prev => ({ ...prev, items: [...prev.items, { id: `m-item-${Date.now()}`, description: '', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }] }))} className="text-indigo-600 text-xs font-black uppercase hover:underline">+ Add Item</button>
+                  <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Bill Line Items</h4>
+                  <button onClick={() => setManualBillData(prev => ({ ...prev, items: [...prev.items, { id: `m-item-${Date.now()}`, description: `Item ${prev.items.length + 1}`, quantity: 1, totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }] }))} className="text-indigo-600 text-xs font-black uppercase hover:underline">+ Add Row</button>
                 </div>
                 <div className="space-y-3">
                   {manualBillData.items.map(item => (
                     <div key={item.id} className="grid grid-cols-12 gap-3 items-center bg-slate-50/50 p-3 rounded-2xl border border-slate-100 group">
                       <input 
-                        placeholder="Item Description" 
+                        placeholder="Description" 
                         value={item.description} 
                         onChange={(e) => updateManualBillItem(item.id!, { description: e.target.value })} 
-                        className="col-span-4 bg-white border border-slate-200 rounded-lg text-sm font-bold p-2 focus:ring-2 focus:ring-indigo-100" 
+                        className="col-span-4 bg-white border border-slate-200 rounded-lg text-sm font-bold p-2 focus:ring-2 focus:ring-indigo-100 outline-none" 
                       />
                       <input 
                         type="number" 
                         placeholder="Qty" 
                         value={item.quantity === 0 ? '' : item.quantity} 
                         onChange={(e) => updateManualBillItem(item.id!, { quantity: e.target.value === '' ? 0 : parseFloat(e.target.value) })} 
-                        className="col-span-1 bg-white border border-slate-200 rounded-lg text-sm font-bold p-2 text-center focus:ring-2 focus:ring-indigo-100" 
+                        className="col-span-1 bg-white border border-slate-200 rounded-lg text-sm font-bold p-2 text-center focus:ring-2 focus:ring-indigo-100 outline-none" 
                       />
                       <div className="col-span-3">
                         <SearchableCategoryDropdown 
@@ -796,13 +796,16 @@ const App: React.FC = () => {
                           onSelect={(catId, subCatId) => updateManualBillItem(item.id!, { categoryId: catId, subCategoryId: subCatId })} 
                         />
                       </div>
-                      <input 
-                        type="number" 
-                        placeholder="Cost" 
-                        value={item.totalCost === 0 ? '' : item.totalCost} 
-                        onChange={(e) => updateManualBillItem(item.id!, { totalCost: e.target.value === '' ? 0 : parseFloat(e.target.value) })} 
-                        className="col-span-3 bg-white border border-indigo-400 rounded-lg text-sm font-black p-2 text-right focus:ring-2 focus:ring-indigo-100 shadow-sm" 
-                      />
+                      <div className="col-span-3 relative">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400">Rs.</span>
+                        <input 
+                          type="number" 
+                          placeholder="Amount" 
+                          value={item.totalCost === 0 ? '' : item.totalCost} 
+                          onChange={(e) => updateManualBillItem(item.id!, { totalCost: e.target.value === '' ? 0 : parseFloat(e.target.value) })} 
+                          className="w-full pl-8 pr-2 py-2 bg-white border border-indigo-200 rounded-lg text-sm font-black text-right focus:ring-2 focus:ring-indigo-500 outline-none shadow-sm" 
+                        />
+                      </div>
                       <button onClick={() => setManualBillData(prev => ({ ...prev, items: prev.items.filter(it => it.id !== item.id) }))} className="col-span-1 text-slate-300 hover:text-red-500 text-center opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
                     </div>
                   ))}
@@ -810,107 +813,90 @@ const App: React.FC = () => {
               </div>
             </div>
             <div className="p-8 bg-slate-50 border-t flex justify-between items-center">
-              <div className="flex-1">
-                <span className="text-[10px] font-black text-slate-400 uppercase block mb-1">Grand Total (Editable)</span>
-                <div className="relative group max-w-sm">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 text-2xl z-10 pointer-events-none">Rs.</span>
-                  <input 
-                    type="number" 
-                    value={manualBillData.totalAmount === 0 ? '' : manualBillData.totalAmount}
-                    onChange={(e) => handleManualTotalChange(e.target.value)}
-                    className="pl-16 pr-6 py-3 bg-white border-4 border-indigo-100 rounded-2xl text-3xl font-black text-indigo-900 outline-none focus:border-indigo-500 transition-all w-full shadow-lg"
-                    placeholder="0.00"
-                  />
-                </div>
+              <div>
+                <span className="text-[10px] font-black text-slate-400 uppercase block mb-1">Calculated Grand Total</span>
+                <span className="text-3xl font-black text-indigo-900">Rs. {manualBillData.totalAmount.toLocaleString()}</span>
               </div>
               <div className="flex gap-4">
-                <button onClick={() => setIsManualBillModalOpen(false)} className="px-8 py-4 rounded-2xl font-black text-xs uppercase text-slate-500 hover:bg-slate-100 transition-all">Cancel</button>
-                <button onClick={handleSaveManualBill} className="bg-indigo-600 hover:bg-indigo-700 text-white px-12 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transform active:scale-95 transition-all">Save Bill</button>
+                <button onClick={() => setIsManualBillModalOpen(false)} className="px-8 py-4 rounded-2xl font-black text-xs uppercase text-slate-500 hover:bg-slate-100 transition-all">Discard</button>
+                <button onClick={handleSaveManualBill} className="bg-indigo-600 hover:bg-indigo-700 text-white px-12 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transform active:scale-95 transition-all">Finalize & Save</button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Audit Bill Modal */}
+      {/* Audit & Verify Modal */}
       {showAuditBillId && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95">
             <div className="p-8 border-b flex justify-between items-center bg-slate-50">
-              <h3 className="text-2xl font-black text-slate-900 tracking-tight">Edit & Audit Bill</h3>
+              <h3 className="text-2xl font-black text-slate-900 tracking-tight">Audit Extracted Data</h3>
               <button onClick={() => setShowAuditBillId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
             </div>
             <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-2 gap-10">
               <div className="space-y-6">
-                <div className="space-y-4">
-                  <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Bill Details</h4>
-                  <div className="space-y-3">
-                    <input 
-                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black text-slate-800 focus:ring-2 focus:ring-indigo-100 outline-none shadow-sm" 
-                      value={data.groceryBills.find(b => b.id === showAuditBillId)?.shopName || ''}
-                      onChange={(e) => updateExistingBill(showAuditBillId, { shopName: e.target.value })}
-                    />
-                    <input 
-                      type="date"
-                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-500 focus:ring-2 focus:ring-indigo-100 outline-none shadow-sm" 
-                      value={data.groceryBills.find(b => b.id === showAuditBillId)?.date || ''}
-                      onChange={(e) => updateExistingBill(showAuditBillId, { date: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Attached Receipt</h4>
-                <div className="space-y-4 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
+                <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Attached Images (Multi-part)</h4>
+                <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
                   {data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls?.map((url, i) => (
-                    <div key={i} className="rounded-2xl border-2 border-slate-100 overflow-hidden shadow-sm bg-slate-100">
-                      <img src={url} className="w-full" alt={`Receipt part ${i + 1}`} />
+                    <div key={i} className="relative rounded-2xl border-2 border-slate-100 overflow-hidden shadow-sm bg-slate-100">
+                      <div className="absolute top-2 left-2 bg-black/50 text-white text-[10px] px-2 py-1 rounded font-black uppercase">Part {i+1}</div>
+                      <img src={url} className="w-full" alt={`Bill segment ${i + 1}`} />
                     </div>
                   ))}
                   {(!data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls || data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls?.length === 0) && (
                     <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl h-64 flex flex-col items-center justify-center text-slate-300">
-                      <div className="text-5xl mb-2">✍️</div>
-                      <p className="font-black text-xs uppercase">Manual Entry (No Photo)</p>
+                      <p className="font-black text-xs uppercase italic">Manual Entry: No images</p>
                     </div>
                   )}
                 </div>
               </div>
               <div className="space-y-4">
-                <div className="flex justify-between items-center bg-indigo-50 p-4 rounded-2xl border border-indigo-100 mb-2">
-                  <div className="flex flex-col">
-                    <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Bill Total (Editable)</h4>
-                    <div className="flex items-center gap-1">
-                      <span className="text-xl font-black text-indigo-900">Rs.</span>
+                <div className="bg-indigo-900 p-6 rounded-2xl text-white flex justify-between items-center shadow-lg mb-4">
+                  <div>
+                    <h4 className="text-[10px] font-black text-indigo-300 uppercase tracking-widest">Shop & Date</h4>
+                    <div className="flex flex-col gap-1 mt-1">
                       <input 
-                        type="number"
-                        className="bg-transparent border-none p-0 text-xl font-black text-indigo-900 focus:ring-0 w-32 outline-none"
-                        value={data.groceryBills.find(b => b.id === showAuditBillId)?.totalAmount === 0 ? '' : data.groceryBills.find(b => b.id === showAuditBillId)?.totalAmount}
-                        onChange={(e) => updateExistingBill(showAuditBillId, { totalAmount: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                        className="bg-transparent border-none p-0 text-xl font-black text-white focus:ring-0 outline-none w-full" 
+                        value={data.groceryBills.find(b => b.id === showAuditBillId)?.shopName || ''}
+                        onChange={(e) => updateExistingBill(showAuditBillId, { shopName: e.target.value })}
+                      />
+                      <input 
+                        type="date"
+                        className="bg-transparent border-none p-0 text-xs font-bold text-indigo-200 focus:ring-0 outline-none" 
+                        value={data.groceryBills.find(b => b.id === showAuditBillId)?.date || ''}
+                        onChange={(e) => updateExistingBill(showAuditBillId, { date: e.target.value })}
                       />
                     </div>
                   </div>
+                  <div className="text-right">
+                    <h4 className="text-[10px] font-black text-indigo-300 uppercase tracking-widest">Bill Total</h4>
+                    <span className="text-2xl font-black">Rs. {data.groceryBills.find(b => b.id === showAuditBillId)?.totalAmount.toLocaleString()}</span>
+                  </div>
                 </div>
-                <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                <div className="space-y-3 overflow-y-auto max-h-[50vh] pr-2 custom-scrollbar">
                   {data.groceryBills.find(b => b.id === showAuditBillId)?.items.map(item => (
                     <div key={item.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3 group hover:border-indigo-200 transition-all">
                       <input 
-                        className="w-full bg-transparent border-none p-0 text-sm font-bold text-slate-700 focus:ring-0 outline-none" 
+                        className="w-full bg-transparent border-none p-0 text-sm font-bold text-slate-700 outline-none focus:ring-0" 
                         value={item.description}
                         onChange={(e) => updateExistingBillItem(showAuditBillId, item.id, { description: e.target.value })}
                       />
-                      <div className="flex items-center gap-4">
-                        <div className="flex-1 flex flex-col">
-                          <label className="text-[8px] font-black text-slate-400 uppercase mb-1">Qty</label>
+                      <div className="flex gap-4">
+                        <div className="flex-1">
+                          <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block px-1">Qty</label>
                           <input 
                             type="number"
-                            className="w-full bg-white border border-slate-100 rounded-lg p-1 text-xs font-bold text-slate-500 focus:ring-2 focus:ring-indigo-100 outline-none" 
+                            className="w-full bg-white border border-slate-200 rounded-lg p-1.5 text-xs font-bold text-slate-500 outline-none" 
                             value={item.quantity === 0 ? '' : item.quantity}
                             onChange={(e) => updateExistingBillItem(showAuditBillId, item.id, { quantity: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
                           />
                         </div>
-                        <div className="flex-1 flex flex-col">
-                          <label className="text-[8px] font-black text-slate-400 uppercase mb-1">Cost (LKR)</label>
+                        <div className="flex-1">
+                          <label className="text-[8px] font-black text-slate-400 uppercase mb-1 block px-1">Cost</label>
                           <input 
                             type="number"
-                            className="w-full bg-white border border-indigo-400 rounded-lg p-1 text-xs font-black text-indigo-700 focus:ring-2 focus:ring-indigo-200 outline-none" 
+                            className="w-full bg-white border border-indigo-200 rounded-lg p-1.5 text-xs font-black text-indigo-700 outline-none" 
                             value={item.totalCost === 0 ? '' : item.totalCost}
                             onChange={(e) => updateExistingBillItem(showAuditBillId, item.id, { totalCost: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
                           />
@@ -926,36 +912,52 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
+            <div className="p-6 bg-slate-50 border-t flex justify-between items-center">
+              <button onClick={() => handleDeleteBill(showAuditBillId)} className="text-red-500 text-xs font-black uppercase hover:underline">Delete Bill</button>
+              <button 
+                onClick={() => {
+                  handleToggleVerifyBill(showAuditBillId);
+                  setShowAuditBillId(null);
+                }} 
+                className="px-10 py-3 bg-indigo-600 text-white rounded-xl font-black text-xs uppercase shadow-xl transform active:scale-95 transition-all"
+              >
+                Verify & Archive
+              </button>
+            </div>
           </div>
         </div>
       )}
 
+      {/* Loan Tracking Page */}
       {activeTab === 'loans' && (
         <div className="space-y-6 animate-in fade-in duration-300">
           <div className="flex justify-between items-center">
-            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Loan Tracking</h2>
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Loan Tracker</h2>
             <button onClick={() => {
-              const name = prompt("Loan Name/Creditor?"); if (name) setData(prev => ({ ...prev, loans: [...prev.loans, { id: `loan-${Date.now()}`, name, openingBalance: 0, transactions: [] }] }));
-            }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-xs shadow-lg transition-all hover:scale-105">+ Add Loan</button>
+              const name = prompt("Account/Lender Name?"); 
+              if (name) setData(prev => ({ ...prev, loans: [...prev.loans, { id: `loan-${Date.now()}`, name, openingBalance: 0, transactions: [] }] }));
+            }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-xs shadow-lg transition-all hover:scale-105">+ Open Account</button>
           </div>
           <div className="grid grid-cols-1 gap-8">
             {data.loans.map(loan => (
               <div key={loan.id} className="bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden">
                 <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
-                  <div><h3 className="text-xl font-black text-slate-800">{loan.name}</h3><p className="text-xs font-bold text-slate-400">Opening: Rs. {loan.openingBalance.toLocaleString()}</p></div>
+                  <div><h3 className="text-xl font-black text-slate-800">{loan.name}</h3><p className="text-xs font-bold text-slate-400">Initial: Rs. {loan.openingBalance.toLocaleString()}</p></div>
                   <div className="flex gap-2">
-                    <button onClick={() => { const amt = Number(prompt("Amount?")); const desc = prompt("Desc?"); if(amt && desc) setData(prev => ({ ...prev, loans: prev.loans.map(l => l.id === loan.id ? { ...l, transactions: [{ id: `t-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: desc, amount: amt, type: 'taken' }, ...l.transactions] } : l) })); }} className="bg-red-50 text-red-700 px-3 py-1.5 rounded-lg text-xs font-black uppercase border border-red-100">+ Borrow</button>
-                    <button onClick={() => { const amt = Number(prompt("Amount?")); const desc = prompt("Desc?"); if(amt && desc) setData(prev => ({ ...prev, loans: prev.loans.map(l => l.id === loan.id ? { ...l, transactions: [{ id: `t-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: desc, amount: amt, type: 'repayment' }, ...l.transactions] } : l) })); }} className="bg-green-50 text-green-700 px-3 py-1.5 rounded-lg text-xs font-black uppercase border border-green-100">+ Repay</button>
+                    <button onClick={() => { const amt = Number(prompt("Amount Borrowed?")); if(amt) setData(prev => ({ ...prev, loans: prev.loans.map(l => l.id === loan.id ? { ...l, transactions: [{ id: `t-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: "Additional Borrowing", amount: amt, type: 'taken' }, ...l.transactions] } : l) })); }} className="bg-red-50 text-red-700 px-3 py-1.5 rounded-lg text-xs font-black uppercase border border-red-100">+ Borrow</button>
+                    <button onClick={() => { const amt = Number(prompt("Repayment Amount?")); if(amt) setData(prev => ({ ...prev, loans: prev.loans.map(l => l.id === loan.id ? { ...l, transactions: [{ id: `t-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: "Repayment", amount: amt, type: 'repayment' }, ...l.transactions] } : l) })); }} className="bg-green-50 text-green-700 px-3 py-1.5 rounded-lg text-xs font-black uppercase border border-green-100">+ Repay</button>
                   </div>
                 </div>
                 <div className="p-6">
-                  <table className="w-full text-left text-sm">
-                    <thead><tr className="text-[10px] font-black text-slate-400 uppercase border-b"><th className="py-2">Date</th><th className="py-2">Description</th><th className="py-2 text-right">Amount</th></tr></thead>
-                    <tbody className="divide-y">{loan.transactions.map(t => (
-                      <tr key={t.id}><td className="py-2 font-bold text-slate-400">{t.date}</td><td className="py-2 font-semibold text-slate-700">{t.description}</td><td className={`py-2 font-black text-right ${t.type === 'taken' ? 'text-red-600' : 'text-green-600'}`}>{t.type === 'taken' ? '+' : '-'} Rs. {t.amount.toLocaleString()}</td></tr>
-                    ))}</tbody>
-                  </table>
-                  <div className="mt-4 pt-4 border-t flex justify-between items-center"><span className="text-xs font-black text-slate-400 uppercase">Balance</span><span className="text-xl font-black text-slate-900">Rs. {(loan.openingBalance + loan.transactions.reduce((s, t) => t.type === 'taken' ? s + t.amount : s - t.amount, 0)).toLocaleString()}</span></div>
+                  <div className="max-h-64 overflow-y-auto custom-scrollbar">
+                    <table className="w-full text-left text-sm">
+                      <thead><tr className="text-[10px] font-black text-slate-400 uppercase border-b"><th className="py-2">Date</th><th className="py-2">Note</th><th className="py-2 text-right">Value</th></tr></thead>
+                      <tbody className="divide-y">{loan.transactions.map(t => (
+                        <tr key={t.id}><td className="py-2 font-bold text-slate-400">{t.date}</td><td className="py-2 font-semibold text-slate-700">{t.description}</td><td className={`py-2 font-black text-right ${t.type === 'taken' ? 'text-red-600' : 'text-green-600'}`}>{t.type === 'taken' ? '+' : '-'} Rs. {t.amount.toLocaleString()}</td></tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                  <div className="mt-4 pt-4 border-t flex justify-between items-center"><span className="text-xs font-black text-slate-400 uppercase">Current Liability</span><span className="text-xl font-black text-slate-900">Rs. {(loan.openingBalance + loan.transactions.reduce((s, t) => t.type === 'taken' ? s + t.amount : s - t.amount, 0)).toLocaleString()}</span></div>
                 </div>
               </div>
             ))}
@@ -965,30 +967,30 @@ const App: React.FC = () => {
 
       {activeTab === 'cash' && (
         <div className="space-y-6 animate-in fade-in duration-300">
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Cash on Hand</h2>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Wallet / Cash Control</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200">
-               <h3 className="text-lg font-black text-emerald-700 mb-6 flex justify-between items-center">Income <button onClick={() => { const d = prompt("Reason?"); const a = Number(prompt("Amount?")); if(d && a) setData(prev => ({ ...prev, cash: { ...prev.cash, income: [{ id: `c-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: d, amount: a }, ...prev.cash.income] } })); }} className="text-[10px] bg-emerald-50 px-2 py-1 rounded">+ Add</button></h3>
+               <h3 className="text-lg font-black text-emerald-700 mb-6 flex justify-between items-center">Inflow <button onClick={() => { const d = prompt("Description?"); const a = Number(prompt("Amount?")); if(d && a) setData(prev => ({ ...prev, cash: { ...prev.cash, income: [{ id: `c-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: d, amount: a }, ...prev.cash.income] } })); }} className="text-[10px] bg-emerald-50 px-2 py-1 rounded">+ Add</button></h3>
                <div className="space-y-2">{data.cash.income.map(item => (<div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl"><span className="text-sm font-bold">{item.description}</span><span className="font-black text-emerald-600">Rs. {item.amount.toLocaleString()}</span></div>))}</div>
             </div>
             <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200">
-               <h3 className="text-lg font-black text-red-700 mb-6 flex justify-between items-center">Expenses <button onClick={() => { const d = prompt("Reason?"); const a = Number(prompt("Amount?")); if(d && a) setData(prev => ({ ...prev, cash: { ...prev.cash, expenses: [{ id: `c-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: d, amount: a }, ...prev.cash.expenses] } })); }} className="text-[10px] bg-red-50 px-2 py-1 rounded">+ Add</button></h3>
+               <h3 className="text-lg font-black text-red-700 mb-6 flex justify-between items-center">Outflow <button onClick={() => { const d = prompt("Description?"); const a = Number(prompt("Amount?")); if(d && a) setData(prev => ({ ...prev, cash: { ...prev.cash, expenses: [{ id: `c-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: d, amount: a }, ...prev.cash.expenses] } })); }} className="text-[10px] bg-red-50 px-2 py-1 rounded">+ Add</button></h3>
                <div className="space-y-2">{data.cash.expenses.map(item => (<div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl"><span className="text-sm font-bold">{item.description}</span><span className="font-black text-red-600">Rs. {item.amount.toLocaleString()}</span></div>))}</div>
             </div>
           </div>
           <div className="bg-indigo-900 p-8 rounded-3xl text-white flex justify-between items-center shadow-2xl">
-             <div><p className="text-xs font-black text-indigo-300 uppercase mb-1">Available Cash</p><h4 className="text-4xl font-black">Rs. {totals.cashBalance.toLocaleString()}</h4></div>
-             <div className="text-right"><p className="text-[10px] font-black text-indigo-300 uppercase mb-1">Opening Bal.</p><input type="number" value={data.cash.openingBalance} onChange={e => setData(prev => ({...prev, cash: {...prev.cash, openingBalance: Number(e.target.value)}}))} className="bg-indigo-800 border-none rounded text-sm font-bold text-white w-24 text-right" /></div>
+             <div><p className="text-xs font-black text-indigo-300 uppercase mb-1">Physical Cash Balance</p><h4 className="text-4xl font-black">Rs. {totals.cashBalance.toLocaleString()}</h4></div>
+             <div className="text-right"><p className="text-[10px] font-black text-indigo-300 uppercase mb-1">Baseline Bal.</p><input type="number" value={data.cash.openingBalance} onChange={e => setData(prev => ({...prev, cash: {...prev.cash, openingBalance: Number(e.target.value)}}))} className="bg-indigo-800 border-none rounded text-sm font-bold text-white w-24 text-right px-2 outline-none" /></div>
           </div>
         </div>
       )}
 
       {activeTab === 'savings' && (
         <div className="space-y-6 animate-in fade-in duration-300">
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Savings Tracker</h2>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Secure Savings</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200">
-               <h3 className="text-lg font-black text-indigo-700 mb-6 flex justify-between items-center">Additions <button onClick={() => { const a = Number(prompt("Amount?")); if(a) setData(prev => ({...prev, savings: {...prev.savings, additions: [{id: `sa-${Date.now()}`, amount: a, date: new Date().toISOString().split('T')[0]}, ...prev.savings.additions]}})); }} className="text-[10px] bg-indigo-50 px-2 py-1 rounded">+ Add</button></h3>
+               <h3 className="text-lg font-black text-indigo-700 mb-6 flex justify-between items-center">Deposits <button onClick={() => { const a = Number(prompt("Deposit Amount?")); if(a) setData(prev => ({...prev, savings: {...prev.savings, additions: [{id: `sa-${Date.now()}`, amount: a, date: new Date().toISOString().split('T')[0]}, ...prev.savings.additions]}})); }} className="text-[10px] bg-indigo-50 px-2 py-1 rounded">+ Add</button></h3>
                <div className="space-y-2">{data.savings.additions.map(item => (<div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl"><span className="text-sm font-bold text-slate-400">{item.date}</span><span className="font-black text-indigo-600">Rs. {item.amount.toLocaleString()}</span></div>))}</div>
             </div>
             <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200">
@@ -997,19 +999,20 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="bg-white p-8 rounded-3xl border-2 border-indigo-100 flex justify-between items-center shadow-lg">
-             <div><p className="text-xs font-black text-slate-400 uppercase mb-1">Savings Balance</p><h4 className="text-4xl font-black text-indigo-900">Rs. {totals.savingsBalance.toLocaleString()}</h4></div>
-             <div className="text-right"><p className="text-[10px] font-black text-slate-400 uppercase mb-1">Opening Bal.</p><input type="number" value={data.savings.openingBalance} onChange={e => setData(prev => ({...prev, savings: {...prev.savings, openingBalance: Number(e.target.value)}}))} className="bg-slate-50 border border-slate-200 rounded text-sm font-bold text-slate-800 w-24 text-right" /></div>
+             <div><p className="text-xs font-black text-slate-400 uppercase mb-1">Total Savings Pool</p><h4 className="text-4xl font-black text-indigo-900">Rs. {totals.savingsBalance.toLocaleString()}</h4></div>
+             <div className="text-right"><p className="text-[10px] font-black text-slate-400 uppercase mb-1">Baseline Bal.</p><input type="number" value={data.savings.openingBalance} onChange={e => setData(prev => ({...prev, savings: {...prev.savings, openingBalance: Number(e.target.value)}}))} className="bg-slate-50 border border-slate-200 rounded text-sm font-bold text-slate-800 w-24 text-right px-2 outline-none" /></div>
           </div>
         </div>
       )}
 
+      {/* Global OCR Processing Overlay */}
       {isOcrLoading && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[300] flex flex-col items-center justify-center">
            <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl flex flex-col items-center gap-6">
              <div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
              <div className="text-center">
                <h4 className="text-xl font-black text-slate-900">{ocrStatus}</h4>
-               <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">Processing Data...</p>
+               <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">Merging images & Extracting Data...</p>
              </div>
            </div>
         </div>

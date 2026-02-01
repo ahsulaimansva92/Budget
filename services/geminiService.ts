@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { BudgetData, GroceryCategory, CategoryOverride } from "../types";
 
@@ -29,11 +30,7 @@ export const processGeneralBill = async (base64Images: string[]): Promise<any> =
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
-    Analyze these bill image(s) using this specific flow:
-    1. IMAGE TRANSCRIPTION: Process the image and convert the layout into a clean, structured table representation of all text found.
-    2. DATA EXTRACTION: From the clean table created in step 1, fetch: merchantName, date (YYYY-MM-DD), total amount (number), and a short summary.
-    
-    If the image is blurry, use the table's context to infer missing data.
+    Analyze these bill image(s) (which may be multiple parts of the same bill) and extract the merchant name, date (YYYY-MM-DD), total amount, and a summary.
     Return the result as a JSON object.
   `;
 
@@ -85,27 +82,32 @@ export const processGroceryBill = async (
   ).join('\n');
 
   const overrideContext = Object.entries(overrides).length > 0 
-    ? `USER PREFERENCES:\n${Object.entries(overrides).map(([desc, ov]) => `- "${desc}" is ${ov.categoryName} -> ${ov.subCategoryName}`).join('\n')}`
+    ? `USER PREFERENCES (Prioritize these):\n${Object.entries(overrides).map(([desc, ov]) => `- "${desc}" MUST BE classified as ${ov.categoryName} -> ${ov.subCategoryName}`).join('\n')}`
     : "";
 
   const prompt = `
-    Extract data from these grocery bill images following this strict sequence:
-    
-    STEP 1: IMAGE TO TABLE TRANSCRIPTION
-    Process the bill images and convert them into a clean, structured table. Every line item should be clearly identified with columns for Description, Quantity, Unit Price, and Total Amount. Handle multi-shot photos as one continuous bill.
-    
-    STEP 2: FIELD EXTRACTION
-    From the structured table generated in Step 1, fetch the individual item names, quantities, unit prices, and total amounts. 
-    Map each item to the appropriate category and subcategory from the list below:
+    You are a specialized Grocery Bill OCR Scanner. 
+    IMPORTANT: The provided images are parts of a SINGLE grocery bill (top, middle, bottom). 
+    Your task is to consolidate all items across all images, extract the data, and accurately classify every item into the correct sub-category.
+
+    HIERARCHY FOR CLASSIFICATION:
     ${categoryContext}
+
     ${overrideContext}
-    
-    RECONSTRUCTION: If the image is blurry, use the table context and common grocery patterns (e.g., 'TMTO' is Tomato) and ensure (Qty * Unit Price = Total) holds true.
-    
-    Return JSON:
-    - shopName (string)
-    - date (YYYY-MM-DD)
-    - items (array of {description, quantity, unit, unitCost, totalCost, categoryName, subCategoryName})
+
+    EXTRACTION RULES:
+    1. Extract the Shop/Merchant name.
+    2. Extract the Bill Date (YYYY-MM-DD).
+    3. For every line item, extract:
+       - description (Full name as on bill)
+       - quantity (Number)
+       - unit (e.g., kg, pcs, g, unit)
+       - unitCost (Price per unit)
+       - totalCost (Final line item price)
+    4. CLASSIFICATION: Assign each item to exactly one 'categoryName' and 'subCategoryName' from the HIERARCHY. 
+    5. If an item doesn't perfectly fit, pick the closest match.
+
+    Return the final data as a strictly formatted JSON object.
   `;
 
   const imageParts = base64Images.map(img => ({
@@ -122,7 +124,7 @@ export const processGroceryBill = async (
         parts: [{ text: prompt }, ...imageParts]
       },
       config: {
-        thinkingConfig: { thinkingBudget: 2000 },
+        thinkingConfig: { thinkingBudget: 2500 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -142,6 +144,7 @@ export const processGroceryBill = async (
                   categoryName: { type: Type.STRING },
                   subCategoryName: { type: Type.STRING },
                 },
+                required: ["description", "totalCost", "categoryName", "subCategoryName"]
               }
             }
           }
@@ -159,8 +162,7 @@ export const processGroceryBill = async (
 export const processLoanScreenshot = async (base64Image: string): Promise<any> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `
-    1. Internally transcribe the financial screenshot into a clean table of transactions.
-    2. Fetch the date, description, amount, and suggest a logical account name for each row.
+    Extract date, description, and amount from this financial screenshot. Suggest an account name.
     Return JSON {transactions: [...]}.
   `;
 
