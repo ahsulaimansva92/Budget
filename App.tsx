@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
-  BudgetData, IncomeSource, ExpenseItem, OneTimePayment, SavingsEntry, SavingsWithdrawal, 
+  BudgetData, IncomeSource, ExpenseItem, OneTimePayment, IntSavingsData, 
   CashEntry, GroceryCategory, GrocerySubCategory, GroceryBill, GroceryBillItem, CategoryOverride,
   LoanAccount, LoanTransaction, LoanTransactionType
 } from './types';
@@ -65,8 +65,9 @@ const SearchableCategoryDropdown: React.FC<{
 
   const filteredCategories = useMemo(() => {
     const query = search.toLowerCase();
-    if (!query) return categories;
-    return categories.map(cat => ({
+    const cats = categories.length > 0 ? categories : INITIAL_DATA.groceryCategories;
+    if (!query) return cats;
+    return cats.map(cat => ({
       ...cat,
       subCategories: cat.subCategories.filter(sub => 
         sub.name.toLowerCase().includes(query) || 
@@ -78,7 +79,8 @@ const SearchableCategoryDropdown: React.FC<{
   const currentLabel = useMemo(() => {
     const [_, subId] = currentValue.split('|');
     if (!subId || subId === 'unassigned') return placeholder;
-    for (const cat of categories) {
+    const cats = categories.length > 0 ? categories : INITIAL_DATA.groceryCategories;
+    for (const cat of cats) {
       const sub = cat.subCategories.find(s => s.id === subId);
       if (sub) return `${cat.name} > ${sub.name}`;
     }
@@ -144,106 +146,6 @@ const SearchableCategoryDropdown: React.FC<{
   );
 };
 
-const CameraScanner: React.FC<{
-  isOpen: boolean;
-  onClose: () => void;
-  onCapture: (images: string[]) => void;
-}> = ({ isOpen, onClose, onCapture }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
-  const [capturedImages, setCapturedImages] = useState<string[]>([]);
-  const [isFlashActive, setIsFlashActive] = useState(false);
-
-  useEffect(() => {
-    if (isOpen) startCamera(); else stopCamera();
-    return () => stopCamera();
-  }, [isOpen]);
-
-  const startCamera = async () => {
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-      setStream(mediaStream);
-      if (videoRef.current) videoRef.current.srcObject = mediaStream;
-    } catch (err) {
-      console.error("Camera access denied:", err);
-      alert("Please allow camera access to scan bills.");
-      onClose();
-    }
-  };
-
-  const stopCamera = () => { if (stream) { stream.getTracks().forEach(track => track.stop()); setStream(null); } };
-
-  const takePhoto = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      const context = canvas.getContext('2d');
-      if (context) {
-        canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-        context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const imageData = canvas.toDataURL('image/jpeg', 0.8);
-        setCapturedImages(prev => [...prev, imageData]);
-        setIsFlashActive(true);
-        setTimeout(() => setIsFlashActive(false), 100);
-      }
-    }
-  };
-
-  const removePhoto = (index: number) => setCapturedImages(prev => prev.filter((_, i) => i !== index));
-
-  const handleDone = () => {
-    if (capturedImages.length > 0) { onCapture(capturedImages); setCapturedImages([]); onClose(); }
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black z-[250] flex flex-col items-center justify-between overflow-hidden touch-none">
-      <div className="w-full p-4 flex justify-between items-center bg-black/50 backdrop-blur-md z-10">
-        <button onClick={onClose} className="text-white bg-white/10 p-2 rounded-full hover:bg-white/20">
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-        </button>
-        <h3 className="text-white font-black text-sm uppercase tracking-widest">Scanning Receipt</h3>
-        <div className="w-10"></div>
-      </div>
-      <div className="relative flex-1 w-full bg-slate-900 flex items-center justify-center overflow-hidden">
-        <video ref={videoRef} autoPlay playsInline className={`w-full h-full object-cover transition-opacity duration-300 ${isFlashActive ? 'opacity-0' : 'opacity-100'}`} />
-        {isFlashActive && <div className="absolute inset-0 bg-white z-20" />}
-        <canvas ref={canvasRef} className="hidden" />
-        <div className="absolute inset-0 border-[3rem] border-black/40 pointer-events-none flex items-center justify-center">
-          <div className="w-full h-[60%] border-2 border-dashed border-white/40 rounded-xl" />
-        </div>
-      </div>
-      <div className="w-full px-4 pt-2 bg-black/80 backdrop-blur-md">
-        <div className="flex gap-2 overflow-x-auto py-2 custom-scrollbar min-h-[80px]">
-          {capturedImages.map((img, idx) => (
-            <div key={idx} className="relative flex-shrink-0">
-              <img src={img} className="h-16 w-12 object-cover rounded-md border border-white/20" />
-              <button onClick={() => removePhoto(idx)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5">
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="w-full p-8 flex justify-between items-center bg-black">
-        <div className="w-16"></div>
-        <button onClick={takePhoto} className="w-20 h-20 bg-white rounded-full p-1 ring-4 ring-white/20 active:scale-90 transition-transform flex items-center justify-center">
-          <div className="w-full h-full bg-white rounded-full border-4 border-black/10" />
-        </button>
-        <div className="w-16">
-          {capturedImages.length > 0 && (
-            <button onClick={handleDone} className="bg-indigo-600 text-white p-4 rounded-full font-black flex items-center justify-center shadow-lg shadow-indigo-500/20 active:scale-95">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [grocerySubTab, setGrocerySubTab] = useState<'analysis' | 'bills' | 'categories'>('analysis');
@@ -253,7 +155,7 @@ const App: React.FC = () => {
       const parsed = JSON.parse(saved);
       if (!parsed.savings) parsed.savings = INITIAL_DATA.savings;
       if (!parsed.cash) parsed.cash = INITIAL_DATA.cash;
-      if (!parsed.groceryCategories) parsed.groceryCategories = INITIAL_DATA.groceryCategories;
+      if (!parsed.groceryCategories || parsed.groceryCategories.length === 0) parsed.groceryCategories = INITIAL_DATA.groceryCategories;
       if (!parsed.groceryBills) parsed.groceryBills = INITIAL_DATA.groceryBills;
       if (!parsed.loans) parsed.loans = INITIAL_DATA.loans;
       if (!parsed.mappingOverrides) parsed.mappingOverrides = {};
@@ -269,24 +171,22 @@ const App: React.FC = () => {
   const [showAuditBillId, setShowAuditBillId] = useState<string | null>(null);
   const [showBreakupSubId, setShowBreakupSubId] = useState<string | null>(null);
   const [isManualBillModalOpen, setIsManualBillModalOpen] = useState(false);
-  const [isCameraModalOpen, setIsCameraModalOpen] = useState(false);
-  const [showCaptureOptions, setShowCaptureOptions] = useState(false);
-  
   const [scannedBillResult, setScannedBillResult] = useState<any | null>(null);
 
   const [manualBillData, setManualBillData] = useState<{
     shopName: string;
     date: string;
+    totalAmount: number | string;
     items: Array<Partial<GroceryBillItem>>;
   }>({
     shopName: '',
     date: new Date().toISOString().split('T')[0],
-    items: [{ id: `m-item-${Date.now()}`, description: '', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }]
+    totalAmount: 0,
+    items: [{ id: `m-item-${Date.now()}`, description: 'General Items', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }]
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const generalScanInputRef = useRef<HTMLInputElement>(null);
-  const loanScanInputRef = useRef<HTMLInputElement>(null);
 
   const syncCashData = (currentData: BudgetData): BudgetData => {
     const today = new Date().toISOString().split('T')[0];
@@ -435,18 +335,6 @@ const App: React.FC = () => {
     finally { setIsOcrLoading(false); setOcrStatus("Preparing Document..."); e.target.value = ''; }
   };
 
-  const handleApplyScannedBill = (targetId: string, targetType: 'expense' | 'onetime' | 'income') => {
-    if (!scannedBillResult) return;
-    setData(prev => {
-      let newData = { ...prev };
-      if (targetType === 'expense') newData.expenses = prev.expenses.map(e => e.id === targetId ? { ...e, amount: scannedBillResult.amount } : e);
-      else if (targetType === 'onetime') newData.oneTimePayments = prev.oneTimePayments.map(p => p.id === targetId ? { ...p, paidAmount: scannedBillResult.amount, dueDate: scannedBillResult.date } : p);
-      else if (targetType === 'income') newData.income = prev.income.map(i => i.id === targetId ? { ...i, amount: scannedBillResult.amount } : i);
-      return syncCashData(newData);
-    });
-    setScannedBillResult(null);
-  };
-
   const handleCategorizeItem = (billId: string, itemId: string, catId: string, subCatId: string) => {
     const cat = data.groceryCategories.find(c => c.id === catId);
     const sub = cat?.subCategories.find(s => s.id === subCatId);
@@ -475,12 +363,27 @@ const App: React.FC = () => {
     }
   };
 
-  // Helper for updating manual bill entry items
   const updateManualBillItem = (id: string, updates: Partial<GroceryBillItem>) => {
-    setManualBillData(prev => ({
-      ...prev,
-      items: prev.items.map(it => it.id === id ? { ...it, ...updates } : it)
-    }));
+    setManualBillData(prev => {
+      const newItems = prev.items.map(it => it.id === id ? { ...it, ...updates } : it);
+      const sum = newItems.reduce((s, i) => s + (Number(i.totalCost) || 0), 0);
+      return {
+        ...prev,
+        items: newItems,
+        totalAmount: sum
+      };
+    });
+  };
+
+  const handleManualTotalChange = (val: string) => {
+    const num = val === '' ? 0 : parseFloat(val);
+    setManualBillData(prev => {
+      const updatedItems = [...prev.items];
+      if (updatedItems.length > 0) {
+        updatedItems[0] = { ...updatedItems[0], totalCost: num };
+      }
+      return { ...prev, items: updatedItems, totalAmount: val === '' ? '' : num };
+    });
   };
 
   const handleSaveManualBill = () => {
@@ -488,12 +391,12 @@ const App: React.FC = () => {
       alert("Please enter shop name and items.");
       return;
     }
-    const totalAmount = manualBillData.items.reduce((s, i) => s + (Number(i.totalCost) || 0), 0);
+    const total = Number(manualBillData.totalAmount) || 0;
     const newBill: GroceryBill = {
       id: `bill-manual-${Date.now()}`,
       date: manualBillData.date,
       shopName: manualBillData.shopName,
-      totalAmount,
+      totalAmount: total,
       isVerified: true,
       items: manualBillData.items.map(i => ({
         id: i.id || `item-${Math.random()}`,
@@ -511,23 +414,15 @@ const App: React.FC = () => {
     setManualBillData({
       shopName: '',
       date: new Date().toISOString().split('T')[0],
-      items: [{ id: `m-item-${Date.now()}`, description: '', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }]
+      totalAmount: 0,
+      items: [{ id: `m-item-${Date.now()}`, description: 'General Items', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }]
     });
   };
 
-  // Helper for editing an existing bill in the Audit modal
   const updateExistingBill = (billId: string, updates: Partial<GroceryBill>) => {
     setData(prev => ({
       ...prev,
-      groceryBills: prev.groceryBills.map(b => {
-        if (b.id !== billId) return b;
-        const updatedBill = { ...b, ...updates };
-        // If items changed, re-calculate grand total
-        if (updates.items) {
-          updatedBill.totalAmount = updates.items.reduce((s, i) => s + Number(i.totalCost || 0), 0);
-        }
-        return updatedBill;
-      })
+      groceryBills: prev.groceryBills.map(b => b.id === billId ? { ...b, ...updates } : b)
     }));
   };
 
@@ -546,10 +441,33 @@ const App: React.FC = () => {
     }));
   };
 
+  const subCategoryBreakupItems = useMemo(() => {
+    if (!showBreakupSubId) return [];
+    const items: Array<{ bill: GroceryBill, item: GroceryBillItem }> = [];
+    data.groceryBills.forEach(bill => {
+      bill.items.forEach(item => {
+        if (item.subCategoryId === showBreakupSubId) {
+          items.push({ bill, item });
+        }
+      });
+    });
+    return items;
+  }, [data.groceryBills, showBreakupSubId]);
+
+  const currentBreakupSubLabel = useMemo(() => {
+    if (!showBreakupSubId) return '';
+    const cats = data.groceryCategories.length > 0 ? data.groceryCategories : INITIAL_DATA.groceryCategories;
+    for (const cat of cats) {
+      const sub = cat.subCategories.find(s => s.id === showBreakupSubId);
+      if (sub) return `${cat.name} > ${sub.name}`;
+    }
+    return 'Unassigned';
+  }, [data.groceryCategories, showBreakupSubId]);
+
   return (
     <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
       <input type="file" multiple accept="image/*" ref={generalScanInputRef} onChange={handleGeneralScan} className="hidden" />
-      <CameraScanner isOpen={isCameraModalOpen} onClose={() => setIsCameraModalOpen(false)} onCapture={processImagesForGrocery} />
+      <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
 
       {activeTab === 'dashboard' && (
         <div className="space-y-10 animate-in fade-in duration-500">
@@ -670,15 +588,13 @@ const App: React.FC = () => {
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">Grocery Tracker</h2>
             <div className="flex flex-wrap gap-3 relative">
               <button onClick={() => setIsManualBillModalOpen(true)} className="bg-white text-indigo-600 border border-indigo-200 px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-sm transition-all hover:bg-indigo-50 active:scale-95">✍️ Manual Entry</button>
-              <button onClick={() => setShowCaptureOptions(!showCaptureOptions)} disabled={isOcrLoading} className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-100 transition-all hover:scale-105 active:scale-95">
-                {isOcrLoading ? <><span className="animate-spin text-xl">🌀</span> Scanning...</> : <><span className="text-xl">📷</span> Capture Bill(s)</>}
+              <button 
+                onClick={() => fileInputRef.current?.click()} 
+                disabled={isOcrLoading} 
+                className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-100 transition-all hover:scale-105 active:scale-95"
+              >
+                {isOcrLoading ? <><span className="animate-spin text-xl">🌀</span> Scanning...</> : <><span className="text-xl">📁</span> Capture Bill(s)</>}
               </button>
-              {showCaptureOptions && (
-                <div className="absolute top-full mt-2 right-0 w-56 bg-white rounded-2xl shadow-2xl border border-slate-100 p-2 z-[150] animate-in slide-in-from-top-2">
-                  <button onClick={() => { setIsCameraModalOpen(true); setShowCaptureOptions(false); }} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-indigo-50 rounded-xl text-sm font-black text-slate-700 transition-colors">📸 Scan with Camera</button>
-                  <button onClick={() => { fileInputRef.current?.click(); setShowCaptureOptions(false); }} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-indigo-50 rounded-xl text-sm font-black text-slate-700 transition-colors">📁 Upload from Files</button>
-                </div>
-              )}
             </div>
           </div>
           <div className="flex gap-1 bg-slate-100 p-1.5 rounded-2xl w-full max-w-2xl">
@@ -686,6 +602,7 @@ const App: React.FC = () => {
               <button key={tab.id} onClick={() => setGrocerySubTab(tab.id as any)} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${grocerySubTab === tab.id ? 'bg-white text-indigo-700 shadow-md' : 'text-slate-500 hover:text-slate-700 hover:bg-slate-50'}`}><span>{tab.icon}</span> {tab.label}</button>
             ))}
           </div>
+          
           {grocerySubTab === 'analysis' && (
             <div className="space-y-8 animate-in fade-in slide-in-from-left-4 duration-300">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -695,23 +612,34 @@ const App: React.FC = () => {
               </div>
               <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  {data.groceryCategories.map(cat => (
+                  {(data.groceryCategories.length > 0 ? data.groceryCategories : INITIAL_DATA.groceryCategories).map(cat => (
                     <div key={cat.id} className="p-6 rounded-2xl bg-slate-50 border border-slate-100 flex flex-col">
                         <div className="flex justify-between items-start mb-6"><span className="text-[11px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-3 py-1 rounded-full">{cat.name}</span><span className="text-xl font-black text-slate-900">Rs. {Number(categoryTotals[cat.id] || 0).toLocaleString()}</span></div>
-                        <div className="space-y-3 flex-1">{cat.subCategories.map(sub => {
-                            const stats = groceryStats[sub.id]; if (!stats) return null;
+                        <div className="space-y-3 flex-1">
+                          {cat.subCategories.map(sub => {
+                            const stats = groceryStats[sub.id];
+                            if (!stats) return null;
                             return (
-                              <div key={sub.id} className="text-xs flex flex-col gap-1 border-t border-slate-200/50 pt-3 mt-1 cursor-pointer hover:bg-white hover:rounded-xl p-2 transition-all group" onClick={() => setShowBreakupSubId(sub.id)}>
-                                <div className="flex justify-between font-bold text-slate-700 group-hover:text-indigo-600"><span>{sub.name}</span><span>Rs. {Number(stats.totalAmount).toLocaleString()}</span></div>
+                              <div 
+                                key={sub.id} 
+                                className="text-xs flex flex-col gap-1 border-t border-slate-200/50 pt-3 mt-1 cursor-pointer hover:bg-white hover:rounded-xl p-2 transition-all group" 
+                                onClick={() => setShowBreakupSubId(sub.id)}
+                              >
+                                <div className="flex justify-between font-bold text-slate-700 group-hover:text-indigo-600">
+                                  <span>{sub.name}</span>
+                                  <span>Rs. {Number(stats.totalAmount).toLocaleString()}</span>
+                                </div>
                               </div>
                             );
-                        })}</div>
+                        })}
+                        </div>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
           )}
+
           {grocerySubTab === 'bills' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {data.groceryBills.length === 0 ? (
@@ -720,38 +648,285 @@ const App: React.FC = () => {
                 </div>
               ) : (
                 data.groceryBills.map(bill => (
-                  <div key={bill.id} className={`bg-white rounded-3xl shadow-lg border-2 transition-all relative group overflow-hidden ${bill.isVerified ? 'border-green-500 shadow-green-50' : 'border-slate-100 hover:border-indigo-100'}`}>
-                    <div className="absolute top-4 left-4 z-20">
-                      <input type="checkbox" checked={bill.isVerified || false} onChange={() => handleToggleVerifyBill(bill.id)} className="w-6 h-6 accent-green-600 cursor-pointer shadow-md rounded-md" title="Verify Bill" />
+                  <div key={bill.id} className={`bg-white rounded-3xl shadow-lg border-2 overflow-hidden group ${bill.isVerified ? 'border-green-500 shadow-green-50' : 'border-slate-100'}`}>
+                    <div className="h-40 bg-slate-100 relative">
+                      {bill.imageUrls && bill.imageUrls.length > 0 ? <img src={bill.imageUrls[0]} className="w-full h-full object-cover" /> : <div className="flex items-center justify-center h-full text-slate-300 font-bold bg-slate-200 text-6xl">✍️</div>}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent p-4 flex flex-col justify-end text-white"><h4 className="font-black truncate">{bill.shopName}</h4><p className="text-xs font-bold">{bill.date}</p></div>
                     </div>
-                    <button onClick={() => handleDeleteBill(bill.id)} className="absolute top-4 right-4 z-20 bg-white/90 p-2 rounded-xl text-red-500 hover:bg-red-500 hover:text-white opacity-0 group-hover:opacity-100 transition-all shadow-lg">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                    </button>
-                    <div className="relative h-40 bg-slate-100">
-                      {bill.imageUrls && bill.imageUrls.length > 0 ? (
-                        <div className="relative w-full h-full">
-                          <img src={bill.imageUrls[0]} className={`w-full h-full object-cover transition-all ${bill.isVerified ? 'grayscale-0' : 'grayscale'}`} />
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-center h-full text-slate-300 font-bold bg-slate-200 text-6xl">✍️</div>
-                      )}
-                      <div className={`absolute inset-0 p-4 flex flex-col justify-end bg-gradient-to-t from-black/70 to-transparent ${bill.isVerified ? 'from-green-900/80' : ''}`}>
-                        <h4 className="text-white font-black text-lg truncate">{bill.shopName} {bill.isVerified && '✅'}</h4>
-                        <p className="text-white/80 text-xs font-bold uppercase tracking-widest">{bill.date}</p>
+                    <div className="p-4 flex justify-between items-center bg-white">
+                      <div><p className="text-[10px] font-black text-slate-400 uppercase">Amount</p><p className="text-lg font-black text-indigo-700">Rs. {Number(bill.totalAmount).toLocaleString()}</p></div>
+                      <div className="flex gap-2">
+                        <button onClick={() => handleToggleVerifyBill(bill.id)} className={`p-2 rounded-xl border ${bill.isVerified ? 'bg-green-600 border-green-600 text-white' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>✅</button>
+                        <button onClick={() => setShowAuditBillId(bill.id)} className="p-2 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 text-xs font-black uppercase">Audit</button>
                       </div>
-                    </div>
-                    <div className={`p-5 flex justify-between items-center bg-white ${bill.isVerified ? 'bg-green-50/30' : ''}`}>
-                      <div>
-                        <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Bill Amount</p>
-                        <p className={`text-xl font-black ${bill.isVerified ? 'text-green-700' : 'text-indigo-700'}`}>Rs. {Number(bill.totalAmount).toLocaleString()}</p>
-                      </div>
-                      <button onClick={() => setShowAuditBillId(bill.id)} className="bg-slate-50 hover:bg-slate-100 text-slate-600 px-4 py-2 rounded-xl text-xs font-black uppercase border border-slate-200">Audit</button>
                     </div>
                   </div>
                 ))
               )}
             </div>
           )}
+
+          {grocerySubTab === 'categories' && (
+            <div className="bg-white rounded-3xl shadow-xl border border-slate-200 p-8 animate-in fade-in zoom-in-95 duration-300">
+              <div className="flex justify-between items-center mb-8">
+                <div>
+                  <h3 className="text-2xl font-black text-slate-900 tracking-tight">Manage Grocery Categories</h3>
+                  <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mt-1">Define classification for spending analysis</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {(data.groceryCategories.length > 0 ? data.groceryCategories : INITIAL_DATA.groceryCategories).map(cat => (
+                  <div key={cat.id} className="bg-slate-50 rounded-2xl border border-slate-100 p-6">
+                    <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-200/60">
+                      <span className="text-sm font-black text-indigo-700 uppercase tracking-wider">{cat.name}</span>
+                      <span className="text-[10px] font-black text-slate-400 uppercase bg-slate-200 px-2 py-0.5 rounded-full">{cat.subCategories.length} Sub-categories</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {cat.subCategories.map(sub => (
+                        <div key={sub.id} className="bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 flex items-center gap-2 shadow-sm">
+                          {sub.name}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Breakup Modal */}
+      {showBreakupSubId && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+              <div>
+                <h3 className="text-2xl font-black text-slate-900">{currentBreakupSubLabel}</h3>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Itemized Spending History</p>
+              </div>
+              <button onClick={() => setShowBreakupSubId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
+            </div>
+            <div className="flex-1 overflow-auto p-8">
+              {subCategoryBreakupItems.length === 0 ? (
+                <div className="text-center py-10">
+                  <p className="text-slate-400 font-bold italic text-sm">No items found for this sub-category.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b">Date</th>
+                        <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b">Shop</th>
+                        <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b">Item Description</th>
+                        <th className="px-4 py-3 text-[10px] font-black text-slate-500 uppercase tracking-widest border-b text-right">Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {subCategoryBreakupItems.map(({ bill, item }) => (
+                        <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-4 py-3 text-xs font-bold text-slate-400">{bill.date}</td>
+                          <td className="px-4 py-3 text-xs font-black text-slate-800">{bill.shopName}</td>
+                          <td className="px-4 py-3 text-xs font-semibold text-slate-600">{item.description}</td>
+                          <td className="px-4 py-3 text-xs font-black text-indigo-700 text-right">Rs. {Number(item.totalCost).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="p-8 bg-slate-50 border-t flex justify-between items-center">
+              <span className="text-[10px] font-black text-slate-400 uppercase">Sub-category Total</span>
+              <span className="text-2xl font-black text-indigo-700">Rs. {subCategoryBreakupItems.reduce((s, i) => s + Number(i.item.totalCost), 0).toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Manual Bill Entry Modal */}
+      {isManualBillModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+              <div>
+                <h3 className="text-2xl font-black text-slate-900">Manual Bill Entry</h3>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Record a purchase without a receipt photo</p>
+              </div>
+              <button onClick={() => setIsManualBillModalOpen(false)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
+            </div>
+            <div className="flex-1 overflow-auto p-8">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Shop Name</label>
+                  <input type="text" placeholder="e.g. Arpico, Keells..." value={manualBillData.shopName} onChange={(e) => setManualBillData(prev => ({ ...prev, shopName: e.target.value }))} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none shadow-sm focus:ring-2 focus:ring-indigo-100" />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Date</label>
+                  <input type="date" value={manualBillData.date} onChange={(e) => setManualBillData(prev => ({ ...prev, date: e.target.value }))} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none shadow-sm focus:ring-2 focus:ring-indigo-100" />
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div className="flex justify-between items-center border-b pb-3">
+                  <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Bill Items</h4>
+                  <button onClick={() => setManualBillData(prev => ({ ...prev, items: [...prev.items, { id: `m-item-${Date.now()}`, description: '', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }] }))} className="text-indigo-600 text-xs font-black uppercase hover:underline">+ Add Item</button>
+                </div>
+                <div className="space-y-3">
+                  {manualBillData.items.map(item => (
+                    <div key={item.id} className="grid grid-cols-12 gap-3 items-center bg-slate-50/50 p-3 rounded-2xl border border-slate-100 group">
+                      <input 
+                        placeholder="Item Description" 
+                        value={item.description} 
+                        onChange={(e) => updateManualBillItem(item.id!, { description: e.target.value })} 
+                        className="col-span-4 bg-white border border-slate-200 rounded-lg text-sm font-bold p-2 focus:ring-2 focus:ring-indigo-100" 
+                      />
+                      <input 
+                        type="number" 
+                        placeholder="Qty" 
+                        value={item.quantity === 0 ? '' : item.quantity} 
+                        onChange={(e) => updateManualBillItem(item.id!, { quantity: e.target.value === '' ? 0 : parseFloat(e.target.value) })} 
+                        className="col-span-1 bg-white border border-slate-200 rounded-lg text-sm font-bold p-2 text-center focus:ring-2 focus:ring-indigo-100" 
+                      />
+                      <div className="col-span-3">
+                        <SearchableCategoryDropdown 
+                          placeholder="Categorize" 
+                          currentValue={`${item.categoryId}|${item.subCategoryId}`} 
+                          categories={data.groceryCategories} 
+                          onSelect={(catId, subCatId) => updateManualBillItem(item.id!, { categoryId: catId, subCategoryId: subCatId })} 
+                        />
+                      </div>
+                      <input 
+                        type="number" 
+                        placeholder="Cost" 
+                        value={item.totalCost === 0 ? '' : item.totalCost} 
+                        onChange={(e) => updateManualBillItem(item.id!, { totalCost: e.target.value === '' ? 0 : parseFloat(e.target.value) })} 
+                        className="col-span-3 bg-white border border-indigo-400 rounded-lg text-sm font-black p-2 text-right focus:ring-2 focus:ring-indigo-100 shadow-sm" 
+                      />
+                      <button onClick={() => setManualBillData(prev => ({ ...prev, items: prev.items.filter(it => it.id !== item.id) }))} className="col-span-1 text-slate-300 hover:text-red-500 text-center opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="p-8 bg-slate-50 border-t flex justify-between items-center">
+              <div className="flex-1">
+                <span className="text-[10px] font-black text-slate-400 uppercase block mb-1">Grand Total (Editable)</span>
+                <div className="relative group max-w-sm">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-slate-400 text-2xl z-10 pointer-events-none">Rs.</span>
+                  <input 
+                    type="number" 
+                    value={manualBillData.totalAmount === 0 ? '' : manualBillData.totalAmount}
+                    onChange={(e) => handleManualTotalChange(e.target.value)}
+                    className="pl-16 pr-6 py-3 bg-white border-4 border-indigo-100 rounded-2xl text-3xl font-black text-indigo-900 outline-none focus:border-indigo-500 transition-all w-full shadow-lg"
+                    placeholder="0.00"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <button onClick={() => setIsManualBillModalOpen(false)} className="px-8 py-4 rounded-2xl font-black text-xs uppercase text-slate-500 hover:bg-slate-100 transition-all">Cancel</button>
+                <button onClick={handleSaveManualBill} className="bg-indigo-600 hover:bg-indigo-700 text-white px-12 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transform active:scale-95 transition-all">Save Bill</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Audit Bill Modal */}
+      {showAuditBillId && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95">
+            <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+              <h3 className="text-2xl font-black text-slate-900 tracking-tight">Edit & Audit Bill</h3>
+              <button onClick={() => setShowAuditBillId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
+            </div>
+            <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-2 gap-10">
+              <div className="space-y-6">
+                <div className="space-y-4">
+                  <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Bill Details</h4>
+                  <div className="space-y-3">
+                    <input 
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black text-slate-800 focus:ring-2 focus:ring-indigo-100 outline-none shadow-sm" 
+                      value={data.groceryBills.find(b => b.id === showAuditBillId)?.shopName || ''}
+                      onChange={(e) => updateExistingBill(showAuditBillId, { shopName: e.target.value })}
+                    />
+                    <input 
+                      type="date"
+                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-500 focus:ring-2 focus:ring-indigo-100 outline-none shadow-sm" 
+                      value={data.groceryBills.find(b => b.id === showAuditBillId)?.date || ''}
+                      onChange={(e) => updateExistingBill(showAuditBillId, { date: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Attached Receipt</h4>
+                <div className="space-y-4 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
+                  {data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls?.map((url, i) => (
+                    <div key={i} className="rounded-2xl border-2 border-slate-100 overflow-hidden shadow-sm bg-slate-100">
+                      <img src={url} className="w-full" alt={`Receipt part ${i + 1}`} />
+                    </div>
+                  ))}
+                  {(!data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls || data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls?.length === 0) && (
+                    <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl h-64 flex flex-col items-center justify-center text-slate-300">
+                      <div className="text-5xl mb-2">✍️</div>
+                      <p className="font-black text-xs uppercase">Manual Entry (No Photo)</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div className="flex justify-between items-center bg-indigo-50 p-4 rounded-2xl border border-indigo-100 mb-2">
+                  <div className="flex flex-col">
+                    <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest">Bill Total (Editable)</h4>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xl font-black text-indigo-900">Rs.</span>
+                      <input 
+                        type="number"
+                        className="bg-transparent border-none p-0 text-xl font-black text-indigo-900 focus:ring-0 w-32 outline-none"
+                        value={data.groceryBills.find(b => b.id === showAuditBillId)?.totalAmount === 0 ? '' : data.groceryBills.find(b => b.id === showAuditBillId)?.totalAmount}
+                        onChange={(e) => updateExistingBill(showAuditBillId, { totalAmount: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                  {data.groceryBills.find(b => b.id === showAuditBillId)?.items.map(item => (
+                    <div key={item.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3 group hover:border-indigo-200 transition-all">
+                      <input 
+                        className="w-full bg-transparent border-none p-0 text-sm font-bold text-slate-700 focus:ring-0 outline-none" 
+                        value={item.description}
+                        onChange={(e) => updateExistingBillItem(showAuditBillId, item.id, { description: e.target.value })}
+                      />
+                      <div className="flex items-center gap-4">
+                        <div className="flex-1 flex flex-col">
+                          <label className="text-[8px] font-black text-slate-400 uppercase mb-1">Qty</label>
+                          <input 
+                            type="number"
+                            className="w-full bg-white border border-slate-100 rounded-lg p-1 text-xs font-bold text-slate-500 focus:ring-2 focus:ring-indigo-100 outline-none" 
+                            value={item.quantity === 0 ? '' : item.quantity}
+                            onChange={(e) => updateExistingBillItem(showAuditBillId, item.id, { quantity: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                          />
+                        </div>
+                        <div className="flex-1 flex flex-col">
+                          <label className="text-[8px] font-black text-slate-400 uppercase mb-1">Cost (LKR)</label>
+                          <input 
+                            type="number"
+                            className="w-full bg-white border border-indigo-400 rounded-lg p-1 text-xs font-black text-indigo-700 focus:ring-2 focus:ring-indigo-200 outline-none" 
+                            value={item.totalCost === 0 ? '' : item.totalCost}
+                            onChange={(e) => updateExistingBillItem(showAuditBillId, item.id, { totalCost: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
+                          />
+                        </div>
+                      </div>
+                      <SearchableCategoryDropdown 
+                        currentValue={`${item.categoryId}|${item.subCategoryId}`} 
+                        categories={data.groceryCategories} 
+                        onSelect={(catId, subCatId) => handleCategorizeItem(showAuditBillId, item.id, catId, subCatId)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -828,160 +1003,13 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Modals and Overlays */}
-      {isManualBillModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[80] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="p-8 border-b flex justify-between items-center bg-slate-50">
-              <div>
-                <h3 className="text-2xl font-black text-slate-900">Manual Bill Entry</h3>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Record a purchase without a receipt photo</p>
-              </div>
-              <button onClick={() => setIsManualBillModalOpen(false)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
-            </div>
-            <div className="flex-1 overflow-auto p-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                <input type="text" placeholder="Shop Name" value={manualBillData.shopName} onChange={(e) => setManualBillData(prev => ({ ...prev, shopName: e.target.value }))} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
-                <input type="date" value={manualBillData.date} onChange={(e) => setManualBillData(prev => ({ ...prev, date: e.target.value }))} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
-              </div>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center border-b pb-3"><h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Bill Items</h4><button onClick={() => setManualBillData(prev => ({ ...prev, items: [...prev.items, { id: `m-item-${Date.now()}`, description: '', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }] }))} className="text-indigo-600 text-xs font-black uppercase">+ Add Item</button></div>
-                <div className="space-y-3">
-                  {manualBillData.items.map(item => (
-                    <div key={item.id} className="grid grid-cols-12 gap-3 items-center bg-slate-50/50 p-3 rounded-2xl border border-slate-100 group">
-                      <input 
-                        placeholder="Item Description" 
-                        value={item.description} 
-                        onChange={(e) => updateManualBillItem(item.id!, { description: e.target.value })} 
-                        className="col-span-4 bg-white border-none rounded-lg text-sm font-bold p-2 focus:ring-2 focus:ring-indigo-100" 
-                      />
-                      <input 
-                        type="number" 
-                        placeholder="Qty" 
-                        value={item.quantity || ''} 
-                        onChange={(e) => updateManualBillItem(item.id!, { quantity: e.target.value === '' ? 0 : parseFloat(e.target.value) })} 
-                        className="col-span-1 bg-white border-none rounded-lg text-sm font-bold p-2 text-center focus:ring-2 focus:ring-indigo-100" 
-                      />
-                      <div className="col-span-3">
-                        <SearchableCategoryDropdown 
-                          placeholder="Categorize" 
-                          currentValue={`${item.categoryId}|${item.subCategoryId}`} 
-                          categories={data.groceryCategories} 
-                          onSelect={(catId, subCatId) => updateManualBillItem(item.id!, { categoryId: catId, subCategoryId: subCatId })} 
-                        />
-                      </div>
-                      <input 
-                        type="number" 
-                        placeholder="Total Cost" 
-                        value={item.totalCost || ''} 
-                        onChange={(e) => updateManualBillItem(item.id!, { totalCost: e.target.value === '' ? 0 : parseFloat(e.target.value) })} 
-                        className="col-span-3 bg-white border-none rounded-lg text-sm font-black p-2 text-right focus:ring-2 focus:ring-indigo-100" 
-                      />
-                      <button onClick={() => setManualBillData(prev => ({ ...prev, items: prev.items.filter(it => it.id !== item.id) }))} className="col-span-1 text-slate-300 hover:text-red-500 text-center opacity-0 group-hover:opacity-100">✕</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="p-8 bg-slate-50 border-t flex justify-between items-center">
-              <div><span className="text-[10px] font-black text-slate-400 uppercase block">Total</span><span className="text-3xl font-black text-slate-900">Rs. {manualBillData.items.reduce((s, i) => s + (Number(i.totalCost) || 0), 0).toLocaleString()}</span></div>
-              <div className="flex gap-4"><button onClick={() => setIsManualBillModalOpen(false)} className="px-8 py-4 rounded-2xl font-black text-xs uppercase text-slate-500 hover:bg-slate-100 transition-all">Cancel</button><button onClick={handleSaveManualBill} className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transform active:scale-95">Save Bill</button></div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showAuditBillId && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95">
-            <div className="p-8 border-b flex justify-between items-center bg-slate-50">
-              <h3 className="text-2xl font-black text-slate-900 tracking-tight">Edit & Audit Bill</h3>
-              <button onClick={() => setShowAuditBillId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
-            </div>
-            <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-2 gap-10">
-              <div className="space-y-6">
-                <div className="space-y-4">
-                  <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Bill Details</h4>
-                  <div className="space-y-3">
-                    <input 
-                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-lg font-black text-slate-800 focus:ring-2 focus:ring-indigo-100 outline-none" 
-                      value={data.groceryBills.find(b => b.id === showAuditBillId)?.shopName || ''}
-                      onChange={(e) => updateExistingBill(showAuditBillId, { shopName: e.target.value })}
-                    />
-                    <input 
-                      type="date"
-                      className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-500 focus:ring-2 focus:ring-indigo-100 outline-none" 
-                      value={data.groceryBills.find(b => b.id === showAuditBillId)?.date || ''}
-                      onChange={(e) => updateExistingBill(showAuditBillId, { date: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Attached Screenshot</h4>
-                <div className="space-y-4 max-h-[40vh] overflow-y-auto pr-2 custom-scrollbar">
-                  {data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls?.map((url, i) => (
-                    <div key={i} className="rounded-2xl border-2 border-slate-100 overflow-hidden shadow-sm bg-slate-100">
-                      <img src={url} className="w-full" alt={`Receipt part ${i + 1}`} />
-                    </div>
-                  ))}
-                  {(!data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls || data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrls?.length === 0) && (
-                    <div className="bg-slate-50 border-2 border-dashed border-slate-200 rounded-3xl h-64 flex flex-col items-center justify-center text-slate-300">
-                      <div className="text-5xl mb-2">✍️</div>
-                      <p className="font-black text-xs uppercase">Manual Entry (No Photo)</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="space-y-4">
-                <div className="flex justify-between items-center"><h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Extracted Items</h4><span className="text-[10px] font-black text-indigo-500 uppercase">Grand Total: Rs. {Number(data.groceryBills.find(b => b.id === showAuditBillId)?.totalAmount || 0).toLocaleString()}</span></div>
-                <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-                  {data.groceryBills.find(b => b.id === showAuditBillId)?.items.map(item => (
-                    <div key={item.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3 group hover:border-indigo-200 transition-all">
-                      <input 
-                        className="w-full bg-transparent border-none p-0 text-sm font-bold text-slate-700 focus:ring-0" 
-                        value={item.description}
-                        onChange={(e) => updateExistingBillItem(showAuditBillId, item.id, { description: e.target.value })}
-                      />
-                      <div className="flex items-center gap-4">
-                        <div className="flex-1 flex flex-col">
-                          <label className="text-[8px] font-black text-slate-400 uppercase mb-1">Quantity</label>
-                          <input 
-                            type="number"
-                            className="w-full bg-white border border-slate-100 rounded-lg p-1 text-xs font-bold text-slate-500 focus:ring-2 focus:ring-indigo-100" 
-                            value={item.quantity || ''}
-                            onChange={(e) => updateExistingBillItem(showAuditBillId, item.id, { quantity: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
-                          />
-                        </div>
-                        <div className="flex-1 flex flex-col">
-                          <label className="text-[8px] font-black text-slate-400 uppercase mb-1">Total Cost (LKR)</label>
-                          <input 
-                            type="number"
-                            className="w-full bg-indigo-50 border border-indigo-100 rounded-lg p-1 text-xs font-black text-indigo-700 focus:ring-2 focus:ring-indigo-200" 
-                            value={item.totalCost || ''}
-                            onChange={(e) => updateExistingBillItem(showAuditBillId, item.id, { totalCost: e.target.value === '' ? 0 : parseFloat(e.target.value) })}
-                          />
-                        </div>
-                      </div>
-                      <SearchableCategoryDropdown 
-                        currentValue={`${item.categoryId}|${item.subCategoryId}`} 
-                        categories={data.groceryCategories} 
-                        onSelect={(catId, subCatId) => handleCategorizeItem(showAuditBillId, item.id, catId, subCatId)}
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {isOcrLoading && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[300] flex flex-col items-center justify-center">
            <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl flex flex-col items-center gap-6">
              <div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
              <div className="text-center">
                <h4 className="text-xl font-black text-slate-900">{ocrStatus}</h4>
-               <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">Step 1: Clean Table Transcription...</p>
+               <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">Processing Data...</p>
              </div>
            </div>
         </div>
