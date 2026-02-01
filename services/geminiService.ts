@@ -1,6 +1,5 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
-import { BudgetData, GroceryCategory, CategoryOverride } from "../types";
+import { BudgetData, GroceryCategory } from "../types";
 
 export const analyzeBudget = async (data: BudgetData): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -30,7 +29,7 @@ export const processGeneralBill = async (base64Images: string[]): Promise<any> =
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
-    Analyze these bill image(s) (which may be multiple parts of the same bill) and extract the merchant name, date (YYYY-MM-DD), total amount, and a summary.
+    Analyze these bill image(s) and extract the merchant name, date (YYYY-MM-DD), total amount, and a summary.
     Return the result as a JSON object.
   `;
 
@@ -72,42 +71,33 @@ export const processGeneralBill = async (base64Images: string[]): Promise<any> =
 
 export const processGroceryBill = async (
   base64Images: string[], 
-  categories: GroceryCategory[], 
-  overrides: Record<string, CategoryOverride> = {}
+  categories: GroceryCategory[]
 ): Promise<any> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  const categoryContext = categories.map(c => 
-    `${c.name}: [${c.subCategories.map(s => s.name).join(', ')}]`
-  ).join('\n');
-
-  const overrideContext = Object.entries(overrides).length > 0 
-    ? `USER PREFERENCES (Prioritize these):\n${Object.entries(overrides).map(([desc, ov]) => `- "${desc}" MUST BE classified as ${ov.categoryName} -> ${ov.subCategoryName}`).join('\n')}`
-    : "";
+  // Construct a simple taxonomy for the model to reference
+  const taxonomy = categories.map(c => ({
+    category: c.name,
+    subCategories: c.subCategories.map(s => s.name)
+  }));
 
   const prompt = `
-    You are a specialized Grocery Bill OCR Scanner. 
-    IMPORTANT: The provided images are parts of a SINGLE grocery bill (top, middle, bottom). 
-    Your task is to consolidate all items across all images, extract the data, and accurately classify every item into the correct sub-category.
+    You are a smart Grocery Bill OCR Scanner.
+    
+    TASK:
+    1. Analyze the provided image(s) (which may be multiple screenshots of one long bill).
+    2. Extract the Shop Name and Bill Date.
+    3. Extract every line item with its Description, Quantity, and Amount (Total Cost).
+    4. CLASSIFY each item into the correct Category and Sub-Category from the provided list.
 
-    HIERARCHY FOR CLASSIFICATION:
-    ${categoryContext}
+    CATEGORY LIST:
+    ${JSON.stringify(taxonomy)}
 
-    ${overrideContext}
-
-    EXTRACTION RULES:
-    1. Extract the Shop/Merchant name.
-    2. Extract the Bill Date (YYYY-MM-DD).
-    3. For every line item, extract:
-       - description (Full name as on bill)
-       - quantity (Number)
-       - unit (e.g., kg, pcs, g, unit)
-       - unitCost (Price per unit)
-       - totalCost (Final line item price)
-    4. CLASSIFICATION: Assign each item to exactly one 'categoryName' and 'subCategoryName' from the HIERARCHY. 
-    5. If an item doesn't perfectly fit, pick the closest match.
-
-    Return the final data as a strictly formatted JSON object.
+    OUTPUT FORMAT:
+    Return a JSON object with:
+    - shopName
+    - date
+    - items: Array of { description, quantity, totalCost, categoryName, subCategoryName }
   `;
 
   const imageParts = base64Images.map(img => ({
@@ -124,7 +114,7 @@ export const processGroceryBill = async (
         parts: [{ text: prompt }, ...imageParts]
       },
       config: {
-        thinkingConfig: { thinkingBudget: 2500 },
+        thinkingConfig: { thinkingBudget: 2000 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -138,8 +128,6 @@ export const processGroceryBill = async (
                 properties: {
                   description: { type: Type.STRING },
                   quantity: { type: Type.NUMBER },
-                  unit: { type: Type.STRING },
-                  unitCost: { type: Type.NUMBER },
                   totalCost: { type: Type.NUMBER },
                   categoryName: { type: Type.STRING },
                   subCategoryName: { type: Type.STRING },

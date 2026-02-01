@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   BudgetData, IncomeSource, ExpenseItem, OneTimePayment, IntSavingsData, 
@@ -279,7 +278,7 @@ const App: React.FC = () => {
     const files = Array.from(e.target.files || []) as File[];
     if (files.length === 0) return;
     setIsOcrLoading(true);
-    setOcrStatus("Processing Images...");
+    setOcrStatus("Running Simple OCR...");
     try {
       const base64Images = await Promise.all(files.map(file => new Promise<string>(resolve => {
         const r = new FileReader(); r.onload = ev => resolve(ev.target?.result as string); r.readAsDataURL(file);
@@ -293,10 +292,11 @@ const App: React.FC = () => {
   };
 
   const processImagesForGrocery = async (base64Images: string[]) => {
-    setOcrStatus("Transcribing Multi-part Bill...");
+    setOcrStatus("Extracting Data...");
     try {
       const compressedImages = await Promise.all(base64Images.map(img => compressImage(img)));
-      const result = await processGroceryBill(compressedImages, data.groceryCategories, data.mappingOverrides || {});
+      // Simplified call: No overrides, just images and categories
+      const result = await processGroceryBill(compressedImages, data.groceryCategories);
       
       const newBillId = `bill-ocr-${Date.now()}`;
       const newBill: GroceryBill = {
@@ -313,8 +313,8 @@ const App: React.FC = () => {
             id: `item-${Math.random()}`,
             description: i.description, 
             quantity: Number(i.quantity) || 1, 
-            unit: i.unit || 'unit',
-            unitCost: Number(i.unitCost) || 0, 
+            unit: 'unit', // Simplified default
+            unitCost: (Number(i.totalCost) || 0) / (Number(i.quantity) || 1), 
             totalCost: Number(i.totalCost) || 0,
             categoryId: cat?.id || 'unassigned', 
             subCategoryId: sub?.id || 'unassigned'
@@ -325,7 +325,7 @@ const App: React.FC = () => {
       setData(prev => ({ ...prev, groceryBills: [newBill, ...prev.groceryBills] }));
       setGrocerySubTab('bills');
       setShowAuditBillId(newBillId); // Force verification
-    } catch (err) { alert("Multi-part Scan Failed."); console.error(err); } 
+    } catch (err) { alert("Scan Failed."); console.error(err); } 
   };
 
   const handleGeneralScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -437,7 +437,6 @@ const App: React.FC = () => {
     }));
   };
 
-  // Added handleDeleteBill to resolve the reference error on line 904.
   const handleDeleteBill = (billId: string | null) => {
     if (!billId) return;
     if (window.confirm("Are you sure you want to delete this bill?")) {
@@ -601,7 +600,7 @@ const App: React.FC = () => {
                 disabled={isOcrLoading} 
                 className="bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-emerald-100 transition-all hover:scale-105 active:scale-95"
               >
-                {isOcrLoading ? <><span className="animate-spin text-xl">🌀</span> Scanning...</> : <><span className="text-xl">📁</span> Capture Bill(s)</>}
+                {isOcrLoading ? <><span className="animate-spin text-xl">🌀</span> Scanning...</> : <><span className="text-xl">📁</span> Simple OCR Scanner</>}
               </button>
             </div>
           </div>
@@ -967,53 +966,193 @@ const App: React.FC = () => {
 
       {activeTab === 'cash' && (
         <div className="space-y-6 animate-in fade-in duration-300">
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Wallet / Cash Control</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200">
-               <h3 className="text-lg font-black text-emerald-700 mb-6 flex justify-between items-center">Inflow <button onClick={() => { const d = prompt("Description?"); const a = Number(prompt("Amount?")); if(d && a) setData(prev => ({ ...prev, cash: { ...prev.cash, income: [{ id: `c-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: d, amount: a }, ...prev.cash.income] } })); }} className="text-[10px] bg-emerald-50 px-2 py-1 rounded">+ Add</button></h3>
-               <div className="space-y-2">{data.cash.income.map(item => (<div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl"><span className="text-sm font-bold">{item.description}</span><span className="font-black text-emerald-600">Rs. {item.amount.toLocaleString()}</span></div>))}</div>
-            </div>
-            <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200">
-               <h3 className="text-lg font-black text-red-700 mb-6 flex justify-between items-center">Outflow <button onClick={() => { const d = prompt("Description?"); const a = Number(prompt("Amount?")); if(d && a) setData(prev => ({ ...prev, cash: { ...prev.cash, expenses: [{ id: `c-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: d, amount: a }, ...prev.cash.expenses] } })); }} className="text-[10px] bg-red-50 px-2 py-1 rounded">+ Add</button></h3>
-               <div className="space-y-2">{data.cash.expenses.map(item => (<div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl"><span className="text-sm font-bold">{item.description}</span><span className="font-black text-red-600">Rs. {item.amount.toLocaleString()}</span></div>))}</div>
+          <div className="flex justify-between items-center">
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Wallet / Cash Control</h2>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+             <SummaryCard title="Opening Cash" amount={data.cash.openingBalance} color="blue" />
+             <SummaryCard title="Net Cash Flow" amount={totals.cashBalance - data.cash.openingBalance} color={totals.cashBalance - data.cash.openingBalance >= 0 ? 'green' : 'red'} />
+             <SummaryCard title="Current Cash in Hand" amount={totals.cashBalance} color="indigo" />
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">Set Opening Balance</label>
+            <div className="relative max-w-xs">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">Rs.</span>
+              <input 
+                type="number" 
+                value={data.cash.openingBalance} 
+                onChange={(e) => setData(prev => ({ ...prev, cash: { ...prev.cash, openingBalance: Number(e.target.value) } }))} 
+                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100" 
+              />
             </div>
           </div>
-          <div className="bg-indigo-900 p-8 rounded-3xl text-white flex justify-between items-center shadow-2xl">
-             <div><p className="text-xs font-black text-indigo-300 uppercase mb-1">Physical Cash Balance</p><h4 className="text-4xl font-black">Rs. {totals.cashBalance.toLocaleString()}</h4></div>
-             <div className="text-right"><p className="text-[10px] font-black text-indigo-300 uppercase mb-1">Baseline Bal.</p><input type="number" value={data.cash.openingBalance} onChange={e => setData(prev => ({...prev, cash: {...prev.cash, openingBalance: Number(e.target.value)}}))} className="bg-indigo-800 border-none rounded text-sm font-bold text-white w-24 text-right px-2 outline-none" /></div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Cash In */}
+            <div className="space-y-4">
+              <div className="flex justify-between items-end border-b-2 border-green-500 pb-2">
+                <h3 className="text-xl font-black text-green-800">Cash In</h3>
+                <button 
+                  onClick={() => setData(prev => ({ ...prev, cash: { ...prev.cash, income: [...prev.cash.income, { id: `cash-inc-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: 'Manual Income', amount: 0 }] } }))}
+                  className="text-[10px] font-black uppercase bg-green-50 text-green-700 px-3 py-1 rounded-lg hover:bg-green-100"
+                >
+                  + Add
+                </button>
+              </div>
+              <div className="space-y-2">
+                {data.cash.income.map(item => (
+                  <div key={item.id} className={`p-3 rounded-xl border flex gap-2 items-center ${item.isSynced ? 'bg-slate-50 border-slate-100 opacity-75' : 'bg-white border-green-100'}`}>
+                    <div className="flex-1">
+                      <div className="flex justify-between mb-1">
+                         {item.isSynced ? (
+                           <span className="text-xs font-bold text-slate-600">{item.description} <span className="text-[8px] bg-slate-200 px-1 rounded text-slate-500 uppercase">Synced</span></span>
+                         ) : (
+                           <input 
+                             value={item.description} 
+                             onChange={(e) => setData(prev => ({ ...prev, cash: { ...prev.cash, income: prev.cash.income.map(i => i.id === item.id ? { ...i, description: e.target.value } : i) } }))} 
+                             className="text-xs font-bold text-slate-800 w-full border-none p-0 focus:ring-0" 
+                           />
+                         )}
+                         <input 
+                           type="date" 
+                           value={item.date} 
+                           disabled={item.isSynced}
+                           onChange={(e) => setData(prev => ({ ...prev, cash: { ...prev.cash, income: prev.cash.income.map(i => i.id === item.id ? { ...i, date: e.target.value } : i) } }))} 
+                           className="text-[10px] text-slate-400 bg-transparent border-none p-0 text-right w-20 focus:ring-0" 
+                         />
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-0 top-1/2 -translate-y-1/2 text-green-600 text-xs font-bold">Rs.</span>
+                        <input 
+                          type="number" 
+                          value={item.amount} 
+                          disabled={item.isSynced}
+                          onChange={(e) => setData(prev => ({ ...prev, cash: { ...prev.cash, income: prev.cash.income.map(i => i.id === item.id ? { ...i, amount: Number(e.target.value) } : i) } }))} 
+                          className="w-full pl-6 bg-transparent border-none p-0 text-sm font-black text-green-700 focus:ring-0" 
+                        />
+                      </div>
+                    </div>
+                    {!item.isSynced && (
+                      <button onClick={() => setData(prev => ({ ...prev, cash: { ...prev.cash, income: prev.cash.income.filter(i => i.id !== item.id) } }))} className="text-slate-300 hover:text-red-500">×</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Cash Out */}
+            <div className="space-y-4">
+              <div className="flex justify-between items-end border-b-2 border-red-500 pb-2">
+                <h3 className="text-xl font-black text-red-800">Cash Out</h3>
+                <button 
+                  onClick={() => setData(prev => ({ ...prev, cash: { ...prev.cash, expenses: [...prev.cash.expenses, { id: `cash-exp-${Date.now()}`, date: new Date().toISOString().split('T')[0], description: 'Manual Expense', amount: 0 }] } }))}
+                  className="text-[10px] font-black uppercase bg-red-50 text-red-700 px-3 py-1 rounded-lg hover:bg-red-100"
+                >
+                  + Add
+                </button>
+              </div>
+              <div className="space-y-2">
+                {data.cash.expenses.map(item => (
+                  <div key={item.id} className={`p-3 rounded-xl border flex gap-2 items-center ${item.isSynced ? 'bg-slate-50 border-slate-100 opacity-75' : 'bg-white border-red-100'}`}>
+                    <div className="flex-1">
+                      <div className="flex justify-between mb-1">
+                         {item.isSynced ? (
+                           <span className="text-xs font-bold text-slate-600">{item.description} <span className="text-[8px] bg-slate-200 px-1 rounded text-slate-500 uppercase">Synced</span></span>
+                         ) : (
+                           <input 
+                             value={item.description} 
+                             onChange={(e) => setData(prev => ({ ...prev, cash: { ...prev.cash, expenses: prev.cash.expenses.map(i => i.id === item.id ? { ...i, description: e.target.value } : i) } }))} 
+                             className="text-xs font-bold text-slate-800 w-full border-none p-0 focus:ring-0" 
+                           />
+                         )}
+                         <input 
+                           type="date" 
+                           value={item.date} 
+                           disabled={item.isSynced}
+                           onChange={(e) => setData(prev => ({ ...prev, cash: { ...prev.cash, expenses: prev.cash.expenses.map(i => i.id === item.id ? { ...i, date: e.target.value } : i) } }))} 
+                           className="text-[10px] text-slate-400 bg-transparent border-none p-0 text-right w-20 focus:ring-0" 
+                         />
+                      </div>
+                      <div className="relative">
+                        <span className="absolute left-0 top-1/2 -translate-y-1/2 text-red-600 text-xs font-bold">Rs.</span>
+                        <input 
+                          type="number" 
+                          value={item.amount} 
+                          disabled={item.isSynced}
+                          onChange={(e) => setData(prev => ({ ...prev, cash: { ...prev.cash, expenses: prev.cash.expenses.map(i => i.id === item.id ? { ...i, amount: Number(e.target.value) } : i) } }))} 
+                          className="w-full pl-6 bg-transparent border-none p-0 text-sm font-black text-red-700 focus:ring-0" 
+                        />
+                      </div>
+                    </div>
+                    {!item.isSynced && (
+                      <button onClick={() => setData(prev => ({ ...prev, cash: { ...prev.cash, expenses: prev.cash.expenses.filter(i => i.id !== item.id) } }))} className="text-slate-300 hover:text-red-500">×</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {activeTab === 'savings' && (
         <div className="space-y-6 animate-in fade-in duration-300">
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Secure Savings</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200">
-               <h3 className="text-lg font-black text-indigo-700 mb-6 flex justify-between items-center">Deposits <button onClick={() => { const a = Number(prompt("Deposit Amount?")); if(a) setData(prev => ({...prev, savings: {...prev.savings, additions: [{id: `sa-${Date.now()}`, amount: a, date: new Date().toISOString().split('T')[0]}, ...prev.savings.additions]}})); }} className="text-[10px] bg-indigo-50 px-2 py-1 rounded">+ Add</button></h3>
-               <div className="space-y-2">{data.savings.additions.map(item => (<div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl"><span className="text-sm font-bold text-slate-400">{item.date}</span><span className="font-black text-indigo-600">Rs. {item.amount.toLocaleString()}</span></div>))}</div>
-            </div>
-            <div className="bg-white p-6 rounded-3xl shadow-xl border border-slate-200">
-               <h3 className="text-lg font-black text-slate-700 mb-6 flex justify-between items-center">Withdrawals <button onClick={() => { const r = prompt("Reason?"); const a = Number(prompt("Amount?")); if(r && a) setData(prev => ({...prev, savings: {...prev.savings, withdrawals: [{id: `sw-${Date.now()}`, amount: a, date: new Date().toISOString().split('T')[0], reason: r}, ...prev.savings.withdrawals]}})); }} className="text-[10px] bg-slate-100 px-2 py-1 rounded">+ Log</button></h3>
-               <div className="space-y-2">{data.savings.withdrawals.map(item => (<div key={item.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl"><div className="flex flex-col"><span className="text-sm font-bold">{item.reason}</span><span className="text-[10px] font-bold text-slate-400 uppercase">{item.date}</span></div><span className="font-black text-slate-900">Rs. {item.amount.toLocaleString()}</span></div>))}</div>
-            </div>
-          </div>
-          <div className="bg-white p-8 rounded-3xl border-2 border-indigo-100 flex justify-between items-center shadow-lg">
-             <div><p className="text-xs font-black text-slate-400 uppercase mb-1">Total Savings Pool</p><h4 className="text-4xl font-black text-indigo-900">Rs. {totals.savingsBalance.toLocaleString()}</h4></div>
-             <div className="text-right"><p className="text-[10px] font-black text-slate-400 uppercase mb-1">Baseline Bal.</p><input type="number" value={data.savings.openingBalance} onChange={e => setData(prev => ({...prev, savings: {...prev.savings, openingBalance: Number(e.target.value)}}))} className="bg-slate-50 border border-slate-200 rounded text-sm font-bold text-slate-800 w-24 text-right px-2 outline-none" /></div>
-          </div>
-        </div>
-      )}
-
-      {/* Global OCR Processing Overlay */}
-      {isOcrLoading && (
-        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[300] flex flex-col items-center justify-center">
-           <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl flex flex-col items-center gap-6">
-             <div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
-             <div className="text-center">
-               <h4 className="text-xl font-black text-slate-900">{ocrStatus}</h4>
-               <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">Merging images & Extracting Data...</p>
+          <h2 className="text-3xl font-black text-slate-900 tracking-tight">Savings & Investments</h2>
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+             <SummaryCard title="Total Savings Balance" amount={totals.savingsBalance} color="indigo" />
+             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+               <label className="text-xs font-black text-slate-400 uppercase tracking-widest block mb-2">Opening Balance (B/F)</label>
+               <div className="relative">
+                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">Rs.</span>
+                 <input 
+                   type="number" 
+                   value={data.savings.openingBalance} 
+                   onChange={(e) => setData(prev => ({ ...prev, savings: { ...prev.savings, openingBalance: Number(e.target.value) } }))} 
+                   className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100" 
+                 />
+               </div>
              </div>
+           </div>
+
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                 <div className="flex justify-between items-center border-b pb-2">
+                    <h3 className="text-lg font-black text-slate-700">Additions / Deposits</h3>
+                    <button onClick={() => setData(prev => ({ ...prev, savings: { ...prev.savings, additions: [...prev.savings.additions, { id: `sav-add-${Date.now()}`, amount: 0, date: new Date().toISOString().split('T')[0] }] } }))} className="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg hover:bg-indigo-100">+ Add</button>
+                 </div>
+                 {data.savings.additions.map(item => (
+                   <div key={item.id} className="flex gap-3 items-center bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                      <input type="date" value={item.date} onChange={(e) => setData(prev => ({ ...prev, savings: { ...prev.savings, additions: prev.savings.additions.map(i => i.id === item.id ? { ...i, date: e.target.value } : i) } }))} className="text-xs font-bold text-slate-500 bg-slate-50 border-none rounded p-1" />
+                      <div className="relative flex-1">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">Rs.</span>
+                        <input type="number" value={item.amount} onChange={(e) => setData(prev => ({ ...prev, savings: { ...prev.savings, additions: prev.savings.additions.map(i => i.id === item.id ? { ...i, amount: Number(e.target.value) } : i) } }))} className="w-full pl-7 pr-2 py-1 bg-white border border-slate-200 rounded text-sm font-black text-indigo-700" />
+                      </div>
+                      <button onClick={() => setData(prev => ({ ...prev, savings: { ...prev.savings, additions: prev.savings.additions.filter(i => i.id !== item.id) } }))} className="text-slate-300 hover:text-red-500">×</button>
+                   </div>
+                 ))}
+              </div>
+
+              <div className="space-y-4">
+                 <div className="flex justify-between items-center border-b pb-2">
+                    <h3 className="text-lg font-black text-slate-700">Withdrawals</h3>
+                    <button onClick={() => setData(prev => ({ ...prev, savings: { ...prev.savings, withdrawals: [...prev.savings.withdrawals, { id: `sav-w-${Date.now()}`, amount: 0, date: new Date().toISOString().split('T')[0], reason: 'Withdrawal' }] } }))} className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100">+ Add</button>
+                 </div>
+                 {data.savings.withdrawals.map(item => (
+                   <div key={item.id} className="flex flex-col gap-2 bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                      <div className="flex gap-2">
+                        <input type="date" value={item.date} onChange={(e) => setData(prev => ({ ...prev, savings: { ...prev.savings, withdrawals: prev.savings.withdrawals.map(i => i.id === item.id ? { ...i, date: e.target.value } : i) } }))} className="text-xs font-bold text-slate-500 bg-slate-50 border-none rounded p-1" />
+                        <input type="text" placeholder="Reason" value={item.reason} onChange={(e) => setData(prev => ({ ...prev, savings: { ...prev.savings, withdrawals: prev.savings.withdrawals.map(i => i.id === item.id ? { ...i, reason: e.target.value } : i) } }))} className="flex-1 text-xs font-bold text-slate-700 border border-slate-200 rounded p-1" />
+                        <button onClick={() => setData(prev => ({ ...prev, savings: { ...prev.savings, withdrawals: prev.savings.withdrawals.filter(i => i.id !== item.id) } }))} className="text-slate-300 hover:text-red-500">×</button>
+                      </div>
+                      <div className="relative w-full">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">Rs.</span>
+                        <input type="number" value={item.amount} onChange={(e) => setData(prev => ({ ...prev, savings: { ...prev.savings, withdrawals: prev.savings.withdrawals.map(i => i.id === item.id ? { ...i, amount: Number(e.target.value) } : i) } }))} className="w-full pl-7 pr-2 py-1 bg-white border border-slate-200 rounded text-sm font-black text-orange-700" />
+                      </div>
+                   </div>
+                 ))}
+              </div>
            </div>
         </div>
       )}
