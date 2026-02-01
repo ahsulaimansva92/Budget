@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   BudgetData, IncomeSource, ExpenseItem, OneTimePayment, SavingsEntry, SavingsWithdrawal, 
@@ -376,6 +377,16 @@ const App: React.FC = () => {
     setData(prev => ({ ...prev, expenses: [...prev.expenses, newExp] }));
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []) as File[];
+    if (files.length === 0) return;
+    const base64Images = await Promise.all(files.map(file => new Promise<string>(resolve => {
+      const r = new FileReader(); r.onload = ev => resolve(ev.target?.result as string); r.readAsDataURL(file);
+    })));
+    processImagesForGrocery(base64Images);
+    e.target.value = '';
+  };
+
   const processImagesForGrocery = async (base64Images: string[]) => {
     setIsOcrLoading(true);
     setOcrStatus("Transcribing Table...");
@@ -451,20 +462,6 @@ const App: React.FC = () => {
     });
   };
 
-  // Fix: Implemented missing handleFileUpload
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []) as File[];
-    if (files.length === 0) return;
-    const base64Images = await Promise.all(files.map(file => new Promise<string>(resolve => {
-      const r = new FileReader();
-      r.onload = ev => resolve(ev.target?.result as string);
-      r.readAsDataURL(file);
-    })));
-    processImagesForGrocery(base64Images);
-    e.target.value = '';
-  };
-
-  // Fix: Implemented missing handleToggleVerifyBill
   const handleToggleVerifyBill = (billId: string) => {
     setData(prev => ({
       ...prev,
@@ -472,7 +469,6 @@ const App: React.FC = () => {
     }));
   };
 
-  // Fix: Implemented missing handleSaveManualBill
   const handleSaveManualBill = () => {
     if (!manualBillData.shopName || manualBillData.items.length === 0) {
       alert("Please enter shop name and items.");
@@ -489,16 +485,13 @@ const App: React.FC = () => {
         description: i.description || 'Manual Entry',
         quantity: i.quantity || 0,
         unit: i.unit || 'unit',
-        unitCost: (i.totalCost || 0) / (i.quantity || 1),
-        totalCost: i.totalCost || 0,
+        unitCost: (Number(i.totalCost) || 0) / (Number(i.quantity) || 1),
+        totalCost: Number(i.totalCost) || 0,
         categoryId: i.categoryId || 'unassigned',
         subCategoryId: i.subCategoryId || 'unassigned'
       })) as GroceryBillItem[]
     };
-    setData(prev => ({
-      ...prev,
-      groceryBills: [newBill, ...prev.groceryBills]
-    }));
+    setData(prev => ({ ...prev, groceryBills: [newBill, ...prev.groceryBills] }));
     setIsManualBillModalOpen(false);
     setManualBillData({
       shopName: '',
@@ -640,7 +633,6 @@ const App: React.FC = () => {
                   <button onClick={() => { fileInputRef.current?.click(); setShowCaptureOptions(false); }} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-indigo-50 rounded-xl text-sm font-black text-slate-700 transition-colors">📁 Upload from Files</button>
                 </div>
               )}
-              <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
             </div>
           </div>
           <div className="flex gap-1 bg-slate-100 p-1.5 rounded-2xl w-full max-w-2xl">
@@ -653,7 +645,7 @@ const App: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <SummaryCard title="Total Bills Value" amount={totals.totalGrocerySpend} color="blue" />
                 <SummaryCard title="Verified Amount" amount={totals.totalVerifiedGroceryAmount} color="green" />
-                <SummaryCard title="Categorized Total" amount={totalCategorizedSpend} color={totals.totalGrocerySpend === totalCategorizedSpend ? "indigo" : "red"} subtitle={totals.totalGrocerySpend === totalCategorizedSpend ? "Full Reconciled ✅" : `Mismatch: Rs. ${(totals.totalGrocerySpend - totalCategorizedSpend).toLocaleString()} ❌`} />
+                <SummaryCard title="Categorized Total" amount={totalCategorizedSpend} color={totals.totalGrocerySpend === totalCategorizedSpend ? "indigo" : "red"} />
               </div>
               <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -769,51 +761,73 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {scannedBillResult && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-           <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
-              <div className="p-8 border-b flex justify-between items-center bg-slate-50"><div><h3 className="text-2xl font-black text-slate-900">Assign Scanned Bill</h3><p className="text-xs font-bold text-slate-500 uppercase">Extracted from clean structured table reasoning</p></div><button onClick={() => setScannedBillResult(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button></div>
-              <div className="flex-1 overflow-auto p-8 grid grid-cols-1 lg:grid-cols-2 gap-10">
-                <div>{scannedBillResult.imageUrls?.length > 0 && <img src={scannedBillResult.imageUrls[0]} className="w-full rounded-2xl border-2 border-slate-100" />}<div className="bg-slate-50 p-6 rounded-2xl mt-4"><p className="text-[10px] font-black text-slate-400 uppercase">Provider</p><p className="font-bold text-slate-800">{scannedBillResult.merchantName}</p><p className="text-[10px] font-black text-slate-400 uppercase mt-4">Amount</p><p className="text-3xl font-black text-indigo-700">Rs. {scannedBillResult.amount?.toLocaleString()}</p></div></div>
-                <div className="space-y-4">
-                   <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Select Target Account</h4>
-                   <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
-                      {data.expenses.map(exp => (<button key={exp.id} onClick={() => handleApplyScannedBill(exp.id, 'expense')} className="w-full text-left p-4 bg-white border border-slate-200 rounded-xl hover:border-indigo-500 hover:shadow-md transition-all flex justify-between items-center group"><span className="font-bold text-slate-700 group-hover:text-indigo-600">{exp.name}</span><span className="text-xs font-black text-slate-400">Rs. {exp.amount.toLocaleString()}</span></button>))}
-                      {data.oneTimePayments.map(otp => (<button key={otp.id} onClick={() => handleApplyScannedBill(otp.id, 'onetime')} className="w-full text-left p-4 bg-white border border-slate-200 rounded-xl hover:border-indigo-500 hover:shadow-md transition-all flex justify-between items-center group"><span className="font-bold text-slate-700 group-hover:text-indigo-600">{otp.title}</span><span className="text-xs font-black text-slate-400">Rs. {otp.totalAmount.toLocaleString()}</span></button>))}
-                   </div>
-                </div>
-              </div>
-           </div>
-        </div>
-      )}
-
+      {/* Modals and Overlays */}
       {isManualBillModalOpen && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[80] flex items-center justify-center p-4">
           <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
-            <div className="p-8 border-b flex justify-between items-center bg-slate-50"><div><h3 className="text-2xl font-black text-slate-900">Manual Bill Entry</h3><p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Record a purchase without a receipt photo</p></div><button onClick={() => setIsManualBillModalOpen(false)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button></div>
+            <div className="p-8 border-b flex justify-between items-center bg-slate-50">
+              <div>
+                <h3 className="text-2xl font-black text-slate-900">Manual Bill Entry</h3>
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Record a purchase without a receipt photo</p>
+              </div>
+              <button onClick={() => setIsManualBillModalOpen(false)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
+            </div>
             <div className="flex-1 overflow-auto p-8">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8"><input type="text" placeholder="Shop Name" value={manualBillData.shopName} onChange={(e) => setManualBillData(prev => ({ ...prev, shopName: e.target.value }))} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" /><input type="date" value={manualBillData.date} onChange={(e) => setManualBillData(prev => ({ ...prev, date: e.target.value }))} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" /></div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                <input type="text" placeholder="Shop Name" value={manualBillData.shopName} onChange={(e) => setManualBillData(prev => ({ ...prev, shopName: e.target.value }))} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
+                <input type="date" value={manualBillData.date} onChange={(e) => setManualBillData(prev => ({ ...prev, date: e.target.value }))} className="w-full px-6 py-4 bg-slate-50 border border-slate-200 rounded-2xl font-bold outline-none" />
+              </div>
               <div className="space-y-4">
                 <div className="flex justify-between items-center border-b pb-3"><h4 className="text-xs font-black text-slate-500 uppercase tracking-widest">Bill Items</h4><button onClick={() => setManualBillData(prev => ({ ...prev, items: [...prev.items, { id: `m-item-${Date.now()}`, description: '', quantity: 1, unit: 'unit', totalCost: 0, categoryId: 'unassigned', subCategoryId: 'unassigned' }] }))} className="text-indigo-600 text-xs font-black uppercase">+ Add Item</button></div>
-                <div className="space-y-3">{manualBillData.items.map(item => (
+                <div className="space-y-3">
+                  {manualBillData.items.map(item => (
                     <div key={item.id} className="grid grid-cols-12 gap-3 items-center bg-slate-50/50 p-3 rounded-2xl border border-slate-100 group">
-                      <input placeholder="Item Description" value={item.description} onChange={(e) => setManualBillData(prev => ({ ...prev, items: prev.items.map(it => it.id === item.id ? { ...it, description: e.target.value } : it) }))} className="col-span-4 bg-white border-none rounded-lg text-sm font-bold p-2" />
-                      <input type="number" placeholder="Qty" value={item.quantity} onChange={(e) => setManualBillData(prev => ({ ...prev, items: prev.items.map(it => it.id === item.id ? { ...it, quantity: Number(e.target.value) } : it) }))} className="col-span-1 bg-white border-none rounded-lg text-sm font-bold p-2 text-center" />
-                      <div className="col-span-3"><SearchableCategoryDropdown placeholder="Categorize" currentValue={`${item.categoryId}|${item.subCategoryId}`} categories={data.groceryCategories} onSelect={(catId, subCatId) => { setManualBillData(prev => ({ ...prev, items: prev.items.map(it => it.id === item.id ? { ...it, categoryId: catId, subCategoryId: subCatId } : it) })); }} /></div>
-                      <input type="number" placeholder="Total Cost" value={item.totalCost} onChange={(e) => setManualBillData(prev => ({ ...prev, items: prev.items.map(it => it.id === item.id ? { ...it, totalCost: Number(e.target.value) } : it) }))} className="col-span-3 bg-white border-none rounded-lg text-sm font-black p-2 text-right" />
+                      <input placeholder="Item Description" value={item.description} onChange={(e) => setManualBillData(prev => ({ ...prev, items: prev.items.map(it => it.id === item.id ? { ...it, description: e.target.value } : it) }))} className="col-span-4 bg-white border-none rounded-lg text-sm font-bold p-2 focus:ring-2 focus:ring-indigo-100" />
+                      <input type="number" placeholder="Qty" value={item.quantity || ''} onChange={(e) => setManualBillData(prev => ({ ...prev, items: prev.items.map(it => it.id === item.id ? { ...it, quantity: e.target.value === '' ? 0 : Number(e.target.value) } : it) }))} className="col-span-1 bg-white border-none rounded-lg text-sm font-bold p-2 text-center focus:ring-2 focus:ring-indigo-100" />
+                      <div className="col-span-3">
+                        <SearchableCategoryDropdown 
+                          placeholder="Categorize" 
+                          currentValue={`${item.categoryId}|${item.subCategoryId}`} 
+                          categories={data.groceryCategories} 
+                          onSelect={(catId, subCatId) => { setManualBillData(prev => ({ ...prev, items: prev.items.map(it => it.id === item.id ? { ...it, categoryId: catId, subCategoryId: subCatId } : it) })); }} 
+                        />
+                      </div>
+                      <input 
+                        type="number" 
+                        placeholder="Amount" 
+                        value={item.totalCost || ''} 
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? 0 : Number(e.target.value);
+                          setManualBillData(prev => ({ 
+                            ...prev, 
+                            items: prev.items.map(it => it.id === item.id ? { ...it, totalCost: val } : it) 
+                          }));
+                        }} 
+                        className="col-span-3 bg-white border-none rounded-lg text-sm font-black p-2 text-right focus:ring-2 focus:ring-indigo-100" 
+                      />
                       <button onClick={() => setManualBillData(prev => ({ ...prev, items: prev.items.filter(it => it.id !== item.id) }))} className="col-span-1 text-slate-300 hover:text-red-500 text-center opacity-0 group-hover:opacity-100">✕</button>
                     </div>
-                ))}</div>
+                  ))}
+                </div>
               </div>
             </div>
-            <div className="p-8 bg-slate-50 border-t flex justify-between items-center"><div><span className="text-[10px] font-black text-slate-400 uppercase block">Total</span><span className="text-3xl font-black text-slate-900">Rs. {manualBillData.items.reduce((s, i) => s + (Number(i.totalCost) || 0), 0).toLocaleString()}</span></div><div className="flex gap-4"><button onClick={() => setIsManualBillModalOpen(false)} className="px-8 py-4 rounded-2xl font-black text-xs uppercase text-slate-500 hover:bg-slate-100 transition-all">Cancel</button><button onClick={handleSaveManualBill} className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transform active:scale-95">Save Bill</button></div></div>
+            <div className="p-8 bg-slate-50 border-t flex justify-between items-center">
+              <div><span className="text-[10px] font-black text-slate-400 uppercase block">Total</span><span className="text-3xl font-black text-slate-900">Rs. {manualBillData.items.reduce((s, i) => s + (Number(i.totalCost) || 0), 0).toLocaleString()}</span></div>
+              <div className="flex gap-4"><button onClick={() => setIsManualBillModalOpen(false)} className="px-8 py-4 rounded-2xl font-black text-xs uppercase text-slate-500 hover:bg-slate-100 transition-all">Cancel</button><button onClick={handleSaveManualBill} className="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-4 rounded-2xl font-black text-xs uppercase shadow-xl transform active:scale-95">Save Bill</button></div>
+            </div>
           </div>
         </div>
       )}
 
       {isOcrLoading && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-md z-[300] flex flex-col items-center justify-center">
-           <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl flex flex-col items-center gap-6"><div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div><div className="text-center"><h4 className="text-xl font-black text-slate-900">{ocrStatus}</h4><p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">Step 1: Clean Table Transcription...</p></div></div>
+           <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl flex flex-col items-center gap-6">
+             <div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+             <div className="text-center">
+               <h4 className="text-xl font-black text-slate-900">{ocrStatus}</h4>
+               <p className="text-sm font-bold text-slate-400 mt-1 uppercase tracking-widest">Step 1: Clean Table Transcription...</p>
+             </div>
+           </div>
         </div>
       )}
     </Layout>
