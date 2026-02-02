@@ -25,22 +25,10 @@ export interface OneTimePayment {
   dueDate: string;
 }
 
-export interface IntSavingsEntry {
-  id: string;
-  amount: number;
-  date: string;
-}
-
 export interface SavingsEntry {
   id: string;
   amount: number;
   date: string;
-}
-
-export interface IntSavingsData {
-  openingBalance: number;
-  additions: SavingsEntry[];
-  withdrawals: SavingsWithdrawal[];
 }
 
 export interface SavingsWithdrawal {
@@ -52,7 +40,7 @@ export interface SavingsWithdrawal {
 
 export interface SavingsData {
   openingBalance: number;
-  additions: IntSavingsEntry[];
+  additions: SavingsEntry[];
   withdrawals: SavingsWithdrawal[];
 }
 
@@ -118,9 +106,8 @@ export interface GroceryBill {
   date: string;
   shopName: string;
   items: GroceryBillItem[];
-  imageUrls?: string[];
+  imageUrl?: string;
   totalAmount: number;
-  isVerified?: boolean;
 }
 
 export interface CategoryOverride {
@@ -132,7 +119,7 @@ export interface BudgetData {
   income: IncomeSource[];
   expenses: ExpenseItem[];
   oneTimePayments: OneTimePayment[];
-  savings: IntSavingsData;
+  savings: SavingsData;
   cash: CashData;
   groceryCategories: GroceryCategory[];
   groceryBills: GroceryBill[];

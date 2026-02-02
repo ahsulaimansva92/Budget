@@ -1,5 +1,6 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
-import { BudgetData, GroceryCategory } from "../types";
+import { BudgetData, GroceryCategory, CategoryOverride } from "../types";
 
 export const analyzeBudget = async (data: BudgetData): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
@@ -25,96 +26,53 @@ export const analyzeBudget = async (data: BudgetData): Promise<string> => {
   }
 };
 
-export const processGeneralBill = async (base64Images: string[]): Promise<any> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  
-  const prompt = `
-    Analyze these bill image(s) and extract the merchant name, date (YYYY-MM-DD), total amount, and a summary.
-    Return the result as a JSON object.
-  `;
-
-  const imageParts = base64Images.map(img => ({
-    inlineData: { 
-      mimeType: "image/jpeg", 
-      data: img.split(',')[1] || img 
-    }
-  }));
-
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
-      contents: {
-        parts: [{ text: prompt }, ...imageParts]
-      },
-      config: {
-        thinkingConfig: { thinkingBudget: 1500 },
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            merchantName: { type: Type.STRING },
-            date: { type: Type.STRING },
-            amount: { type: Type.NUMBER },
-            summary: { type: Type.STRING },
-          },
-          propertyOrdering: ["merchantName", "date", "amount", "summary"],
-        }
-      }
-    });
-
-    return JSON.parse(response.text || '{}');
-  } catch (error) {
-    console.error("General Bill OCR Error:", error);
-    throw error;
-  }
-};
-
 export const processGroceryBill = async (
-  base64Images: string[], 
-  categories: GroceryCategory[]
+  base64Image: string, 
+  categories: GroceryCategory[], 
+  overrides: Record<string, CategoryOverride> = {}
 ): Promise<any> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  // Construct a simple taxonomy for the model to reference
-  const taxonomy = categories.map(c => ({
-    category: c.name,
-    subCategories: c.subCategories.map(s => s.name)
-  }));
+  const categoryContext = categories.map(c => 
+    `${c.name}: [${c.subCategories.map(s => s.name).join(', ')}]`
+  ).join('\n');
+
+  const overrideContext = Object.entries(overrides).length > 0 
+    ? `USER PREFERENCES (Follow these strictly if you see these items again):\n${Object.entries(overrides).map(([desc, ov]) => `- "${desc}" should be ${ov.categoryName} -> ${ov.subCategoryName}`).join('\n')}`
+    : "";
 
   const prompt = `
-    You are a smart Grocery Bill OCR Scanner.
+    Analyze this grocery bill image. Extract all items.
+    For each item, determine its category and subcategory based on this list:
+    ${categoryContext}
     
-    TASK:
-    1. Analyze the provided image(s) (which may be multiple screenshots of one long bill).
-    2. Extract the Shop Name and Bill Date.
-    3. Extract every line item with its Description, Quantity, and Amount (Total Cost).
-    4. CLASSIFY each item into the correct Category and Sub-Category from the provided list.
-
-    CATEGORY LIST:
-    ${JSON.stringify(taxonomy)}
-
-    OUTPUT FORMAT:
+    ${overrideContext}
+    
+    CRITICAL: If an item is similar to one in the USER PREFERENCES, use the specified category/subcategory.
+    
     Return a JSON object with:
-    - shopName
-    - date
-    - items: Array of { description, quantity, totalCost, categoryName, subCategoryName }
+    - shopName (string)
+    - date (string, YYYY-MM-DD)
+    - items (array):
+      - description (string)
+      - quantity (number)
+      - unit (string, e.g., kg, g, pkt, unit)
+      - unitCost (number)
+      - totalCost (number)
+      - categoryName (matching one from the list)
+      - subCategoryName (matching one from the list)
   `;
-
-  const imageParts = base64Images.map(img => ({
-    inlineData: { 
-      mimeType: "image/jpeg", 
-      data: img.split(',')[1] || img 
-    }
-  }));
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       contents: {
-        parts: [{ text: prompt }, ...imageParts]
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] || base64Image } }
+        ]
       },
       config: {
-        thinkingConfig: { thinkingBudget: 2000 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -128,11 +86,12 @@ export const processGroceryBill = async (
                 properties: {
                   description: { type: Type.STRING },
                   quantity: { type: Type.NUMBER },
+                  unit: { type: Type.STRING },
+                  unitCost: { type: Type.NUMBER },
                   totalCost: { type: Type.NUMBER },
                   categoryName: { type: Type.STRING },
                   subCategoryName: { type: Type.STRING },
-                },
-                required: ["description", "totalCost", "categoryName", "subCategoryName"]
+                }
               }
             }
           }
@@ -149,14 +108,22 @@ export const processGroceryBill = async (
 
 export const processLoanScreenshot = async (base64Image: string): Promise<any> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
   const prompt = `
-    Extract date, description, and amount from this financial screenshot. Suggest an account name.
-    Return JSON {transactions: [...]}.
+    Analyze this screenshot containing financial loan or repayment transactions.
+    Extract every individual transaction found.
+    For each transaction, determine:
+    1. Date (YYYY-MM-DD)
+    2. Description/Reason (Be descriptive)
+    3. Amount (number)
+    4. Logical Account Name (Group similar transactions by their likely purpose or creditor name)
+
+    Return a JSON object containing an array of 'transactions'.
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       contents: {
         parts: [
           { text: prompt },
@@ -164,7 +131,6 @@ export const processLoanScreenshot = async (base64Image: string): Promise<any> =
         ]
       },
       config: {
-        thinkingConfig: { thinkingBudget: 1500 },
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
@@ -177,7 +143,7 @@ export const processLoanScreenshot = async (base64Image: string): Promise<any> =
                   date: { type: Type.STRING },
                   description: { type: Type.STRING },
                   amount: { type: Type.NUMBER },
-                  suggestedAccount: { type: Type.STRING },
+                  suggestedAccount: { type: Type.STRING, description: "Group transactions into logical account names" },
                 }
               }
             }
