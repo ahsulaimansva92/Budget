@@ -570,6 +570,71 @@ const App: React.FC = () => {
     }
   };
 
+  // Bill Management Handlers
+  const handleUpdateBillDetails = (billId: string, field: keyof GroceryBill, value: any) => {
+    setData(prev => ({
+      ...prev,
+      groceryBills: prev.groceryBills.map(b => b.id === billId ? { ...b, [field]: value } : b)
+    }));
+  };
+
+  const handleUpdateBillItem = (billId: string, itemId: string, field: keyof GroceryBillItem, value: any) => {
+    setData(prev => ({
+      ...prev,
+      groceryBills: prev.groceryBills.map(b => {
+        if (b.id !== billId) return b;
+        const newItems = b.items.map(i => i.id === itemId ? { ...i, [field]: value } : i);
+        // Recalculate total from items
+        const newTotal = newItems.reduce((sum, i) => sum + Number(i.totalCost), 0);
+        return { ...b, items: newItems, totalAmount: newTotal };
+      })
+    }));
+  };
+
+  const handleAddBillItem = (billId: string) => {
+    setData(prev => ({
+      ...prev,
+      groceryBills: prev.groceryBills.map(b => {
+        if (b.id !== billId) return b;
+        const newItem: GroceryBillItem = {
+          id: `item-${Date.now()}-${Math.random()}`,
+          description: 'New Item',
+          rawDescription: 'New Item',
+          quantity: 1,
+          unit: 'unit',
+          unitCost: 0,
+          totalCost: 0,
+          categoryId: 'unassigned',
+          subCategoryId: 'unassigned'
+        };
+        const newItems = [...b.items, newItem];
+        return { ...b, items: newItems };
+      })
+    }));
+  };
+
+  const handleDeleteBillItem = (billId: string, itemId: string) => {
+    setData(prev => ({
+      ...prev,
+      groceryBills: prev.groceryBills.map(b => {
+        if (b.id !== billId) return b;
+        const newItems = b.items.filter(i => i.id !== itemId);
+        const newTotal = newItems.reduce((sum, i) => sum + Number(i.totalCost), 0);
+        return { ...b, items: newItems, totalAmount: newTotal };
+      })
+    }));
+  };
+
+  const handleDeleteBill = (billId: string) => {
+    if (confirm("Are you sure you want to delete this entire bill and its items?")) {
+      setData(prev => ({
+        ...prev,
+        groceryBills: prev.groceryBills.filter(b => b.id !== billId)
+      }));
+      setShowAuditBillId(null);
+    }
+  };
+
   const moveCategory = (index: number, direction: 'up' | 'down') => {
     const newCats = [...data.groceryCategories];
     const targetIndex = direction === 'up' ? index - 1 : index + 1;
@@ -962,7 +1027,7 @@ const App: React.FC = () => {
                             onClick={() => setShowAuditBillId(bill.id)}
                             className="bg-slate-50 hover:bg-slate-100 text-slate-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-slate-200 transition-colors"
                           >
-                            View Audit
+                            Edit / Audit
                           </button>
                       </div>
                     </div>
@@ -1107,13 +1172,39 @@ const App: React.FC = () => {
 
           {showAuditBillId && (
             <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
-              <div className="bg-white rounded-[2.5rem] w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95">
+              <div className="bg-white rounded-[2.5rem] w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95">
                 <div className="p-8 border-b flex justify-between items-center bg-slate-50">
-                  <div className="flex flex-col">
-                    <h3 className="text-2xl font-black text-slate-900 tracking-tight">Bill Source Audit</h3>
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Comparing digital extraction with physical record</p>
+                  <div className="flex flex-col flex-1">
+                    <h3 className="text-2xl font-black text-slate-900 tracking-tight">Edit Bill Details</h3>
+                    <div className="flex gap-4 mt-2">
+                      <div className="flex flex-col">
+                        <label className="text-[9px] text-slate-400 uppercase font-black tracking-widest">Shop Name</label>
+                        <input 
+                          value={data.groceryBills.find(b => b.id === showAuditBillId)?.shopName}
+                          onChange={(e) => handleUpdateBillDetails(showAuditBillId, 'shopName', e.target.value)}
+                          className="bg-transparent border-b border-slate-300 focus:border-indigo-600 outline-none text-slate-800 font-bold"
+                        />
+                      </div>
+                      <div className="flex flex-col">
+                        <label className="text-[9px] text-slate-400 uppercase font-black tracking-widest">Date</label>
+                        <input 
+                          type="date"
+                          value={data.groceryBills.find(b => b.id === showAuditBillId)?.date}
+                          onChange={(e) => handleUpdateBillDetails(showAuditBillId, 'date', e.target.value)}
+                          className="bg-transparent border-b border-slate-300 focus:border-indigo-600 outline-none text-slate-800 font-bold"
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <button onClick={() => setShowAuditBillId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
+                  <div className="flex items-center gap-4">
+                    <button 
+                      onClick={() => handleDeleteBill(showAuditBillId)}
+                      className="text-red-500 hover:text-red-700 text-xs font-black uppercase tracking-widest border border-red-200 hover:bg-red-50 px-4 py-2 rounded-xl transition-all"
+                    >
+                      Delete Bill
+                    </button>
+                    <button onClick={() => setShowAuditBillId(null)} className="text-slate-400 hover:text-slate-900 text-3xl font-light p-2">✕</button>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-auto p-8">
                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
@@ -1125,29 +1216,73 @@ const App: React.FC = () => {
                           <img src={data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrl} className="w-full" alt="Original Receipt" />
                         </div>
                       </div>
-                      <div className="flex flex-col">
+                      <div className="flex flex-col h-full">
                         <h4 className="text-xs font-black text-slate-500 uppercase mb-4 tracking-widest flex items-center gap-2">
-                          <span className="text-lg">🔡</span> AI Extracted Items
+                          <span className="text-lg">🔡</span> Bill Items
                         </h4>
-                        <div className="flex-1 bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden">
-                          <table className="w-full text-left text-sm border-collapse">
-                            <thead className="bg-white border-b border-slate-200">
-                              <tr>
-                                <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Extraction</th>
-                                <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Qty</th>
-                                <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Cost (Rs.)</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 bg-white/50">
-                              {data.groceryBills.find(b => b.id === showAuditBillId)?.items.map(item => (
-                                <tr key={item.id} className="hover:bg-white transition-colors">
-                                  <td className="px-4 py-4 text-xs font-semibold text-slate-700 italic">"{item.rawDescription}"</td>
-                                  <td className="px-4 py-4 text-xs font-bold text-slate-500">{item.quantity} {item.unit}</td>
-                                  <td className="px-4 py-4 text-xs font-black text-indigo-600">Rs. {Number(item.totalCost).toLocaleString()}</td>
+                        <div className="flex-1 bg-slate-50 rounded-3xl border border-slate-100 overflow-hidden flex flex-col">
+                          <div className="overflow-auto flex-1">
+                            <table className="w-full text-left text-sm border-collapse">
+                              <thead className="bg-white border-b border-slate-200 sticky top-0 z-10">
+                                <tr>
+                                  <th className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest">Item Description</th>
+                                  <th className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest w-20">Qty</th>
+                                  <th className="px-4 py-3 text-[10px] font-black text-slate-400 uppercase tracking-widest w-24">Cost</th>
+                                  <th className="px-4 py-3 w-10"></th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100 bg-white/50">
+                                {data.groceryBills.find(b => b.id === showAuditBillId)?.items.map(item => (
+                                  <tr key={item.id} className="hover:bg-white transition-colors group">
+                                    <td className="px-4 py-2">
+                                      <input 
+                                        value={item.description}
+                                        onChange={(e) => handleUpdateBillItem(showAuditBillId, item.id, 'description', e.target.value)}
+                                        className="w-full bg-transparent border-none p-1 text-xs font-semibold text-slate-700 focus:ring-1 focus:ring-indigo-200 rounded"
+                                      />
+                                    </td>
+                                    <td className="px-4 py-2">
+                                       <div className="flex items-center gap-1">
+                                          <input 
+                                            type="number"
+                                            value={item.quantity}
+                                            onChange={(e) => handleUpdateBillItem(showAuditBillId, item.id, 'quantity', Number(e.target.value))}
+                                            className="w-12 bg-transparent border-none p-1 text-xs font-bold text-slate-500 focus:ring-1 focus:ring-indigo-200 rounded"
+                                          />
+                                          <span className="text-[10px] text-slate-400">{item.unit}</span>
+                                       </div>
+                                    </td>
+                                    <td className="px-4 py-2">
+                                      <input 
+                                        type="number"
+                                        value={item.totalCost}
+                                        onChange={(e) => handleUpdateBillItem(showAuditBillId, item.id, 'totalCost', Number(e.target.value))}
+                                        className="w-full bg-transparent border-none p-1 text-xs font-black text-indigo-600 focus:ring-1 focus:ring-indigo-200 rounded"
+                                      />
+                                    </td>
+                                    <td className="px-4 py-2 text-right">
+                                      <button 
+                                        onClick={() => handleDeleteBillItem(showAuditBillId, item.id)}
+                                        className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all"
+                                      >✕</button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                          <div className="p-4 bg-white border-t border-slate-200 flex justify-between items-center">
+                            <button 
+                              onClick={() => handleAddBillItem(showAuditBillId)}
+                              className="text-xs font-black text-indigo-600 hover:bg-indigo-50 px-3 py-2 rounded-lg transition-colors uppercase tracking-widest"
+                            >
+                              + Add Item
+                            </button>
+                            <div className="text-right">
+                              <span className="text-[10px] text-slate-400 uppercase font-black tracking-widest mr-2">Total Bill</span>
+                              <span className="text-xl font-black text-indigo-700">Rs. {Number(data.groceryBills.find(b => b.id === showAuditBillId)?.totalAmount).toLocaleString()}</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                    </div>
