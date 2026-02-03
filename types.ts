@@ -108,6 +108,7 @@ export interface GroceryBill {
   items: GroceryBillItem[];
   imageUrl?: string;
   totalAmount: number;
+  isVerified?: boolean;
 }
 
 export interface CategoryOverride {

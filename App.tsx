@@ -469,6 +469,15 @@ const App: React.FC = () => {
     setShowAuditBillId(newBill.id);
   };
 
+  const handleToggleVerification = (billId: string) => {
+    setData(prev => ({
+      ...prev,
+      groceryBills: (Array.isArray(prev.groceryBills) ? prev.groceryBills : []).map(b => 
+        b.id === billId ? { ...b, isVerified: !b.isVerified } : b
+      )
+    }));
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -488,6 +497,7 @@ const App: React.FC = () => {
           shopName: result.shopName || 'Unknown Shop',
           imageUrl: base64,
           totalAmount: result.items.reduce((s: number, i: any) => s + Number(i.totalCost), 0),
+          isVerified: false,
           items: result.items.map((i: any) => {
             const cat = data.groceryCategories.find(c => c.name === i.categoryName);
             const sub = cat?.subCategories.find(s => s.name === i.subCategoryName);
@@ -1101,6 +1111,24 @@ const App: React.FC = () => {
 
           {grocerySubTab === 'bills' && (
             <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
+              <div className="flex flex-col md:flex-row gap-6">
+                 <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex-1 flex justify-between items-center">
+                    <div>
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Total Archived</p>
+                        <p className="text-2xl font-black text-slate-900">Rs. {totals.totalGrocerySpend.toLocaleString()}</p>
+                    </div>
+                 </div>
+                 <div className="bg-emerald-50 p-6 rounded-2xl shadow-sm border border-emerald-100 flex-1 flex justify-between items-center">
+                    <div>
+                        <p className="text-xs font-black text-emerald-600 uppercase tracking-widest">Verified Amount</p>
+                        <p className="text-2xl font-black text-emerald-700">
+                          Rs. {data.groceryBills.reduce((acc, b) => b.isVerified ? acc + Number(b.totalAmount) : acc, 0).toLocaleString()}
+                        </p>
+                    </div>
+                    <div className="h-10 w-10 bg-emerald-100 rounded-full flex items-center justify-center text-xl">✅</div>
+                 </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {(!data.groceryBills || data.groceryBills.length === 0) ? (
                   <div className="col-span-full py-20 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
@@ -1124,6 +1152,15 @@ const App: React.FC = () => {
                           </div>
                       </div>
                       <div className="p-5 flex flex-col gap-4 flex-1 justify-between">
+                          <div className="flex items-center gap-3 mb-2 cursor-pointer group/verify" onClick={() => handleToggleVerification(bill.id)}>
+                             <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${bill.isVerified ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 bg-white group-hover/verify:border-emerald-300'}`}>
+                                {bill.isVerified && '✓'}
+                             </div>
+                             <span className={`text-xs font-black uppercase tracking-widest transition-colors ${bill.isVerified ? 'text-emerald-600' : 'text-slate-400 group-hover/verify:text-emerald-500'}`}>
+                               {bill.isVerified ? 'Verified Bill' : 'Mark as Verified'}
+                             </span>
+                          </div>
+
                           <div>
                             <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-1">Total Bill</p>
                             <p className="text-2xl font-black text-indigo-700">Rs. {Number(bill.totalAmount).toLocaleString()}</p>
