@@ -1537,8 +1537,8 @@ const App: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="p-0">
-                    <table className="w-full text-left border-collapse">
+                  <div className="p-0 overflow-x-auto">
+                    <table className="w-full text-left border-collapse min-w-[700px]">
                       <thead className="bg-slate-100">
                         <tr>
                           <th className="px-6 py-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">Date</th>
