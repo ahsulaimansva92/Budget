@@ -3,12 +3,12 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   BudgetData, IncomeSource, ExpenseItem, OneTimePayment, SavingsEntry, SavingsWithdrawal, 
   CashEntry, GroceryCategory, GrocerySubCategory, GroceryBill, GroceryBillItem, CategoryOverride,
-  LoanAccount, LoanTransaction, LoanTransactionType
+  LoanAccount, LoanTransaction, LoanTransactionType, BankStatement, BankTransaction
 } from './types';
 import { INITIAL_DATA } from './constants';
 import Layout from './components/Layout';
 import SummaryCard from './components/SummaryCard';
-import { analyzeBudget, processGroceryBill, processLoanScreenshot } from './services/geminiService';
+import { analyzeBudget, processGroceryBill, processLoanScreenshot, processBankStatement } from './services/geminiService';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, PieChart, Pie 
 } from 'recharts';
@@ -141,6 +141,7 @@ const App: React.FC = () => {
         // Fix: Ensure groceryBills is an array to prevent crashes or invisible bills
         if (!parsed.groceryBills || !Array.isArray(parsed.groceryBills)) parsed.groceryBills = INITIAL_DATA.groceryBills || [];
         if (!parsed.loans) parsed.loans = INITIAL_DATA.loans;
+        if (!parsed.bankStatements) parsed.bankStatements = INITIAL_DATA.bankStatements || [];
         if (!parsed.mappingOverrides) parsed.mappingOverrides = {};
         return parsed;
       } catch (e) {
@@ -158,10 +159,14 @@ const App: React.FC = () => {
   const [showBreakupSubId, setShowBreakupSubId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loanFileInputRef = useRef<HTMLInputElement>(null);
+  const bankFileInputRef = useRef<HTMLInputElement>(null);
 
   // Modal states for Loans
   const [selectedLoanAccountId, setSelectedLoanAccountId] = useState<string | null>(null);
   const [isLoanOcrLoading, setIsLoanOcrLoading] = useState(false);
+
+  // Bank Statement
+  const [isBankOcrLoading, setIsBankOcrLoading] = useState(false);
 
   /**
    * Sync function to ensure Cash tab matches items marked as "Cash Handled"
@@ -611,6 +616,71 @@ const App: React.FC = () => {
     }
   };
 
+  // Bank Statement Handlers
+  const handleBankFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    
+    setIsBankOcrLoading(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64 = event.target?.result as string;
+      try {
+        const result = await processBankStatement(base64);
+        const extractedTransactions = result.transactions || [];
+        
+        const newStatement: BankStatement = {
+          id: `stmt-${Date.now()}`,
+          uploadDate: new Date().toISOString().split('T')[0],
+          fileName: result.statementDate || `Statement - ${new Date().toLocaleDateString()}`,
+          imageUrl: base64,
+          transactions: extractedTransactions.map((tx: any) => ({
+            id: `btx-${Date.now()}-${Math.random()}`,
+            date: tx.date || new Date().toISOString().split('T')[0],
+            description: tx.description || 'Unknown Transaction',
+            amount: Number(tx.amount) || 0,
+            type: tx.type === 'debit' ? 'debit' : 'credit'
+          }))
+        };
+
+        setData(prev => ({
+          ...prev,
+          bankStatements: [newStatement, ...(prev.bankStatements || [])]
+        }));
+      } catch (err) {
+        alert("Failed to process bank statement.");
+      } finally {
+        setIsBankOcrLoading(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDeleteBankTransaction = (stmtId: string, txId: string) => {
+    if (confirm("Delete this transaction?")) {
+      setData(prev => ({
+        ...prev,
+        bankStatements: prev.bankStatements.map(stmt => {
+          if (stmt.id !== stmtId) return stmt;
+          return {
+            ...stmt,
+            transactions: stmt.transactions.filter(tx => tx.id !== txId)
+          };
+        })
+      }));
+    }
+  };
+
+  const handleDeleteStatement = (stmtId: string) => {
+     if (confirm("Delete this entire statement and its history?")) {
+      setData(prev => ({
+        ...prev,
+        bankStatements: prev.bankStatements.filter(s => s.id !== stmtId)
+      }));
+     }
+  };
+
   // Bill Management Handlers
   const handleUpdateBillDetails = (billId: string, field: keyof GroceryBill, value: any) => {
     setData(prev => ({
@@ -788,6 +858,135 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {/* ... [Other tabs omitted for brevity, keeping only the new Bank tab and modified content] ... */}
+
+      {activeTab === 'bank' && (
+        <div className="space-y-10 animate-in fade-in duration-300">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Bank Statements</h2>
+            <div>
+               <input type="file" accept="image/*" ref={bankFileInputRef} onChange={handleBankFileUpload} className="hidden" />
+               <button 
+                onClick={() => bankFileInputRef.current?.click()}
+                disabled={isBankOcrLoading}
+                className="bg-indigo-600 text-white px-6 py-3 rounded-xl font-bold flex items-center gap-2 shadow-lg shadow-indigo-100 transition-all hover:scale-105 active:scale-95"
+              >
+                {isBankOcrLoading ? (
+                  <><span className="animate-spin text-xl">🌀</span> Scanning Statement...</>
+                ) : (
+                  <><span className="text-xl">📷</span> Add New Statement</>
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-12">
+            {(data.bankStatements || []).length === 0 ? (
+               <div className="py-20 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
+                  <div className="text-5xl mb-4 opacity-30">🏦</div>
+                  <p className="text-slate-400 font-black uppercase tracking-widest">No statements archived yet</p>
+                  <p className="text-sm text-slate-400 mt-2">Upload a screenshot of your bank statement to get started</p>
+               </div>
+            ) : (
+              data.bankStatements.map((stmt) => {
+                const totalInflow = stmt.transactions.filter(t => t.type === 'credit').reduce((sum, t) => sum + Number(t.amount), 0);
+                const totalOutflow = stmt.transactions.filter(t => t.type === 'debit').reduce((sum, t) => sum + Number(t.amount), 0);
+                const netFlow = totalInflow - totalOutflow;
+
+                return (
+                  <div key={stmt.id} className="bg-white rounded-[2.5rem] shadow-xl border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-4">
+                    <div className="p-6 bg-slate-900 text-white flex flex-col md:flex-row justify-between items-center gap-4">
+                       <div>
+                          <h3 className="text-xl font-bold">{stmt.fileName}</h3>
+                          <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">Uploaded: {stmt.uploadDate}</p>
+                       </div>
+                       <div className="flex items-center gap-6">
+                          <div className="text-right">
+                             <span className="text-[10px] text-slate-400 font-black uppercase tracking-widest block">Net Cash Flow</span>
+                             <span className={`text-xl font-black ${netFlow >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                {netFlow >= 0 ? '+' : '-'} Rs. {Math.abs(netFlow).toLocaleString()}
+                             </span>
+                          </div>
+                          <button 
+                             onClick={() => handleDeleteStatement(stmt.id)}
+                             className="bg-white/10 hover:bg-red-500/20 text-white hover:text-red-200 p-2 rounded-lg transition-colors"
+                             title="Delete Statement"
+                          >
+                             ✕
+                          </button>
+                       </div>
+                    </div>
+
+                    <div className="flex flex-col lg:flex-row divide-y lg:divide-y-0 lg:divide-x divide-slate-100">
+                       {/* Inflow Column */}
+                       <div className="flex-1 p-6">
+                          <div className="flex justify-between items-end mb-6 border-b border-emerald-100 pb-2">
+                             <h4 className="text-lg font-black text-emerald-700 flex items-center gap-2">
+                                <span>⬇️</span> Cash Inflow
+                             </h4>
+                             <span className="text-emerald-600 font-black text-lg">Rs. {totalInflow.toLocaleString()}</span>
+                          </div>
+                          <div className="space-y-3">
+                             {stmt.transactions.filter(t => t.type === 'credit').map(tx => (
+                                <div key={tx.id} className="flex justify-between items-center bg-emerald-50/50 p-3 rounded-xl border border-emerald-50 group hover:border-emerald-200 transition-colors">
+                                   <div>
+                                      <div className="text-xs font-bold text-slate-400">{tx.date}</div>
+                                      <div className="text-sm font-bold text-slate-700">{tx.description}</div>
+                                   </div>
+                                   <div className="flex items-center gap-3">
+                                      <span className="font-black text-emerald-600">Rs. {tx.amount.toLocaleString()}</span>
+                                      <button 
+                                        onClick={() => handleDeleteBankTransaction(stmt.id, tx.id)}
+                                        className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      >✕</button>
+                                   </div>
+                                </div>
+                             ))}
+                             {stmt.transactions.filter(t => t.type === 'credit').length === 0 && (
+                                <p className="text-center text-xs text-slate-400 italic py-4">No deposits found</p>
+                             )}
+                          </div>
+                       </div>
+
+                       {/* Outflow Column */}
+                       <div className="flex-1 p-6 bg-slate-50/30">
+                          <div className="flex justify-between items-end mb-6 border-b border-red-100 pb-2">
+                             <h4 className="text-lg font-black text-red-700 flex items-center gap-2">
+                                <span>⬆️</span> Cash Outflow
+                             </h4>
+                             <span className="text-red-600 font-black text-lg">Rs. {totalOutflow.toLocaleString()}</span>
+                          </div>
+                          <div className="space-y-3">
+                             {stmt.transactions.filter(t => t.type === 'debit').map(tx => (
+                                <div key={tx.id} className="flex justify-between items-center bg-white p-3 rounded-xl border border-red-50 group hover:border-red-200 transition-colors shadow-sm">
+                                   <div>
+                                      <div className="text-xs font-bold text-slate-400">{tx.date}</div>
+                                      <div className="text-sm font-bold text-slate-700">{tx.description}</div>
+                                   </div>
+                                   <div className="flex items-center gap-3">
+                                      <span className="font-black text-red-600">Rs. {tx.amount.toLocaleString()}</span>
+                                      <button 
+                                        onClick={() => handleDeleteBankTransaction(stmt.id, tx.id)}
+                                        className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      >✕</button>
+                                   </div>
+                                </div>
+                             ))}
+                             {stmt.transactions.filter(t => t.type === 'debit').length === 0 && (
+                                <p className="text-center text-xs text-slate-400 italic py-4">No withdrawals found</p>
+                             )}
+                          </div>
+                       </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Render other tabs */}
       {activeTab === 'income' && (
         <div className="space-y-6 animate-in fade-in duration-300">
           <h2 className="text-3xl font-black text-slate-900 tracking-tight">Monthly Income</h2>
@@ -1232,7 +1431,7 @@ const App: React.FC = () => {
                                <div className="flex flex-col text-[10px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">
                                   <button onClick={() => moveSubCategory(catIdx, subIdx, 'up')} className="hover:text-indigo-600">▲</button>
                                   <button onClick={() => moveSubCategory(catIdx, subIdx, 'down')} className="hover:text-indigo-600">▼</button>
-                               </div>
+                                </div>
                                <input 
                                 value={sub.name}
                                 onChange={(e) => {
@@ -1272,7 +1471,7 @@ const App: React.FC = () => {
               </div>
             </div>
           )}
-
+          {/* ... [Breakup modal and Audit modal logic remains same] ... */}
           {showBreakupSubId && (
             <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
                <div className="bg-white rounded-[2.5rem] w-full max-w-5xl max-h-[85vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
@@ -1614,6 +1813,7 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {/* ... [Rest of the activeTabs like cash, onetime, savings] ... */}
       {activeTab === 'cash' && (
         <div className="space-y-8 animate-in fade-in duration-300">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">

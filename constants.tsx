@@ -220,5 +220,6 @@ export const INITIAL_DATA: BudgetData = {
   },
   groceryCategories: INITIAL_GROCERY_CATEGORIES,
   groceryBills: [],
-  loans: []
+  loans: [],
+  bankStatements: []
 };

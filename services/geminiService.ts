@@ -158,3 +158,59 @@ export const processLoanScreenshot = async (base64Image: string): Promise<any> =
     throw error;
   }
 };
+
+export const processBankStatement = async (base64Image: string): Promise<any> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  
+  const prompt = `
+    Analyze this bank statement image. Extract all transactions.
+    
+    For each transaction, identify:
+    1. Date (YYYY-MM-DD format)
+    2. Description (Transaction details)
+    3. Amount (Positive Number)
+    4. Type: Is it 'credit' (money in / deposit) or 'debit' (money out / withdrawal / expense)?
+
+    Return a JSON object containing:
+    - statementDate (string - likely month/year)
+    - transactions (array of objects with date, description, amount, type)
+  `;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: {
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType: "image/jpeg", data: base64Image.split(',')[1] || base64Image } }
+        ]
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            statementDate: { type: Type.STRING },
+            transactions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  date: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  amount: { type: Type.NUMBER },
+                  type: { type: Type.STRING, enum: ['credit', 'debit'] },
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    return JSON.parse(response.text || '{"transactions": []}');
+  } catch (error) {
+    console.error("Bank Statement OCR Processing Error:", error);
+    throw error;
+  }
+};

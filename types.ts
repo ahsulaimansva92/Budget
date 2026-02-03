@@ -116,6 +116,25 @@ export interface CategoryOverride {
   subCategoryName: string;
 }
 
+// Bank Statement Types
+export type BankTransactionType = 'credit' | 'debit';
+
+export interface BankTransaction {
+  id: string;
+  date: string;
+  description: string;
+  amount: number;
+  type: BankTransactionType;
+}
+
+export interface BankStatement {
+  id: string;
+  uploadDate: string;
+  fileName: string; // e.g., "Statement - Jan 2026"
+  imageUrl?: string;
+  transactions: BankTransaction[];
+}
+
 export interface BudgetData {
   income: IncomeSource[];
   expenses: ExpenseItem[];
@@ -125,5 +144,6 @@ export interface BudgetData {
   groceryCategories: GroceryCategory[];
   groceryBills: GroceryBill[];
   loans: LoanAccount[];
+  bankStatements: BankStatement[];
   mappingOverrides?: Record<string, CategoryOverride>;
 }
