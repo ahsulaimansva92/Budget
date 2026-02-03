@@ -1542,12 +1542,16 @@ const App: React.FC = () => {
                               </button>
                             </td>
                             <td className="px-6 py-4">
-                              <input 
-                                type="number"
-                                value={tx.amount} 
-                                onChange={(e) => handleUpdateLoanTransaction(selectedLoanAccountId, tx.id, 'amount', Number(e.target.value))}
-                                className={`w-24 bg-transparent border-none focus:ring-0 p-0 font-black text-base ${tx.type === 'taken' ? 'text-red-700' : 'text-green-700'}`}
-                              />
+                                <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-lg border border-slate-200 focus-within:ring-2 focus-within:ring-indigo-100 focus-within:border-indigo-400 transition-all">
+                                    <span className="text-xs font-bold text-slate-400">Rs.</span>
+                                    <input 
+                                        type="number"
+                                        value={tx.amount} 
+                                        onChange={(e) => handleUpdateLoanTransaction(selectedLoanAccountId, tx.id, 'amount', Number(e.target.value))}
+                                        className={`w-full bg-transparent border-none focus:ring-0 p-0 font-black text-sm ${tx.type === 'taken' ? 'text-red-600' : 'text-green-600'}`}
+                                        placeholder="0"
+                                    />
+                                </div>
                             </td>
                             <td className="px-6 py-4 text-right">
                               <button 
