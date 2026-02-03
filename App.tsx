@@ -133,14 +133,20 @@ const App: React.FC = () => {
   const [data, setData] = useState<BudgetData>(() => {
     const saved = localStorage.getItem('home_budget_data');
     if (saved) {
-      const parsed = JSON.parse(saved);
-      if (!parsed.savings) parsed.savings = INITIAL_DATA.savings;
-      if (!parsed.cash) parsed.cash = INITIAL_DATA.cash;
-      if (!parsed.groceryCategories) parsed.groceryCategories = INITIAL_DATA.groceryCategories;
-      if (!parsed.groceryBills) parsed.groceryBills = INITIAL_DATA.groceryBills;
-      if (!parsed.loans) parsed.loans = INITIAL_DATA.loans;
-      if (!parsed.mappingOverrides) parsed.mappingOverrides = {};
-      return parsed;
+      try {
+        const parsed = JSON.parse(saved);
+        if (!parsed.savings) parsed.savings = INITIAL_DATA.savings;
+        if (!parsed.cash) parsed.cash = INITIAL_DATA.cash;
+        if (!parsed.groceryCategories) parsed.groceryCategories = INITIAL_DATA.groceryCategories;
+        // Fix: Ensure groceryBills is an array to prevent crashes or invisible bills
+        if (!parsed.groceryBills || !Array.isArray(parsed.groceryBills)) parsed.groceryBills = INITIAL_DATA.groceryBills || [];
+        if (!parsed.loans) parsed.loans = INITIAL_DATA.loans;
+        if (!parsed.mappingOverrides) parsed.mappingOverrides = {};
+        return parsed;
+      } catch (e) {
+        console.error("Failed to parse saved data", e);
+        return { ...INITIAL_DATA, mappingOverrides: {} };
+      }
     }
     return { ...INITIAL_DATA, mappingOverrides: {} };
   });
@@ -202,7 +208,8 @@ const App: React.FC = () => {
   const totals = useMemo(() => {
     const totalIncome = data.income.reduce((sum, item) => sum + Number(item.amount), 0);
     const recurringExpenses = data.expenses.reduce((sum, item) => sum + Number(item.amount), 0);
-    const totalGrocerySpend = data.groceryBills.reduce((sum, bill) => sum + Number(bill.totalAmount), 0);
+    const safeBills = Array.isArray(data.groceryBills) ? data.groceryBills : [];
+    const totalGrocerySpend = safeBills.reduce((sum, bill) => sum + Number(bill.totalAmount), 0);
     const totalExpenses = recurringExpenses + totalGrocerySpend;
     
     const salaryIncome = Number(data.income.find(i => i.name === 'Salary')?.amount || 0);
@@ -245,7 +252,8 @@ const App: React.FC = () => {
 
   const groceryStats = useMemo(() => {
     const stats: Record<string, { totalAmount: number; totalQuantity: number; avgUnitCost: number; itemCount: number }> = {};
-    data.groceryBills.forEach(bill => {
+    const safeBills = Array.isArray(data.groceryBills) ? data.groceryBills : [];
+    safeBills.forEach(bill => {
       bill.items.forEach(item => {
         const subId = item.subCategoryId || 'unassigned';
         if (!stats[subId]) {
@@ -262,7 +270,8 @@ const App: React.FC = () => {
 
   const categoryTotals = useMemo(() => {
     const catTotals: Record<string, number> = {};
-    data.groceryBills.forEach(bill => {
+    const safeBills = Array.isArray(data.groceryBills) ? data.groceryBills : [];
+    safeBills.forEach(bill => {
       bill.items.forEach(item => {
         const catId = item.categoryId || 'unassigned';
         catTotals[catId] = (catTotals[catId] || 0) + Number(item.totalCost);
@@ -278,7 +287,8 @@ const App: React.FC = () => {
   }, [categoryTotals]);
 
   const unassignedItems = useMemo(() => {
-    return data.groceryBills.flatMap(bill => 
+    const safeBills = Array.isArray(data.groceryBills) ? data.groceryBills : [];
+    return safeBills.flatMap(bill => 
       bill.items
         .filter(item => !item.subCategoryId || item.subCategoryId === 'unassigned' || item.subCategoryId === 'misc')
         .map(item => ({ ...item, billId: bill.id, billDate: bill.date, billShop: bill.shopName }))
@@ -287,7 +297,8 @@ const App: React.FC = () => {
 
   const breakupItems = useMemo(() => {
     if (!showBreakupSubId) return [];
-    return data.groceryBills.flatMap(bill => 
+    const safeBills = Array.isArray(data.groceryBills) ? data.groceryBills : [];
+    return safeBills.flatMap(bill => 
       bill.items
         .filter(item => item.subCategoryId === showBreakupSubId)
         .map(item => ({ ...item, billId: bill.id, billDate: bill.date, billShop: bill.shopName }))
@@ -339,7 +350,8 @@ const App: React.FC = () => {
   const handleCategorizeItem = (billId: string, itemId: string, catId: string, subCatId: string) => {
     const cat = data.groceryCategories.find(c => c.id === catId);
     const sub = cat?.subCategories.find(s => s.id === subCatId);
-    const bill = data.groceryBills.find(b => b.id === billId);
+    const safeBills = Array.isArray(data.groceryBills) ? data.groceryBills : [];
+    const bill = safeBills.find(b => b.id === billId);
     const item = bill?.items.find(i => i.id === itemId);
     const rawDesc = item?.rawDescription || item?.description;
 
@@ -351,7 +363,7 @@ const App: React.FC = () => {
       return {
         ...prev,
         mappingOverrides: newOverrides,
-        groceryBills: prev.groceryBills.map(bill => {
+        groceryBills: (Array.isArray(prev.groceryBills) ? prev.groceryBills : []).map(bill => {
           if (bill.id !== billId) return bill;
           return {
             ...bill,
@@ -452,7 +464,7 @@ const App: React.FC = () => {
       totalAmount: 0,
       imageUrl: ''
     };
-    setData(prev => ({ ...prev, groceryBills: [newBill, ...prev.groceryBills] }));
+    setData(prev => ({ ...prev, groceryBills: [newBill, ...(Array.isArray(prev.groceryBills) ? prev.groceryBills : [])] }));
     setGrocerySubTab('bills');
     setShowAuditBillId(newBill.id);
   };
@@ -460,6 +472,10 @@ const App: React.FC = () => {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Fix: Reset input value so onChange triggers if the same file is selected again
+    e.target.value = '';
+
     setIsOcrLoading(true);
     const reader = new FileReader();
     reader.onload = async (event) => {
@@ -488,7 +504,7 @@ const App: React.FC = () => {
             };
           })
         };
-        setData(prev => ({ ...prev, groceryBills: [newBill, ...prev.groceryBills] }));
+        setData(prev => ({ ...prev, groceryBills: [newBill, ...(Array.isArray(prev.groceryBills) ? prev.groceryBills : [])] }));
         setGrocerySubTab('bills');
       } catch (err) {
         alert("Failed to process bill image.");
@@ -589,14 +605,14 @@ const App: React.FC = () => {
   const handleUpdateBillDetails = (billId: string, field: keyof GroceryBill, value: any) => {
     setData(prev => ({
       ...prev,
-      groceryBills: prev.groceryBills.map(b => b.id === billId ? { ...b, [field]: value } : b)
+      groceryBills: (Array.isArray(prev.groceryBills) ? prev.groceryBills : []).map(b => b.id === billId ? { ...b, [field]: value } : b)
     }));
   };
 
   const handleUpdateBillItem = (billId: string, itemId: string, field: keyof GroceryBillItem, value: any) => {
     setData(prev => ({
       ...prev,
-      groceryBills: prev.groceryBills.map(b => {
+      groceryBills: (Array.isArray(prev.groceryBills) ? prev.groceryBills : []).map(b => {
         if (b.id !== billId) return b;
         const newItems = b.items.map(i => i.id === itemId ? { ...i, [field]: value } : i);
         // Recalculate total from items
@@ -609,7 +625,7 @@ const App: React.FC = () => {
   const handleAddBillItem = (billId: string) => {
     setData(prev => ({
       ...prev,
-      groceryBills: prev.groceryBills.map(b => {
+      groceryBills: (Array.isArray(prev.groceryBills) ? prev.groceryBills : []).map(b => {
         if (b.id !== billId) return b;
         const newItem: GroceryBillItem = {
           id: `item-${Date.now()}-${Math.random()}`,
@@ -631,7 +647,7 @@ const App: React.FC = () => {
   const handleDeleteBillItem = (billId: string, itemId: string) => {
     setData(prev => ({
       ...prev,
-      groceryBills: prev.groceryBills.map(b => {
+      groceryBills: (Array.isArray(prev.groceryBills) ? prev.groceryBills : []).map(b => {
         if (b.id !== billId) return b;
         const newItems = b.items.filter(i => i.id !== itemId);
         const newTotal = newItems.reduce((sum, i) => sum + Number(i.totalCost), 0);
@@ -644,7 +660,7 @@ const App: React.FC = () => {
     if (confirm("Are you sure you want to delete this entire bill and its items?")) {
       setData(prev => ({
         ...prev,
-        groceryBills: prev.groceryBills.filter(b => b.id !== billId)
+        groceryBills: (Array.isArray(prev.groceryBills) ? prev.groceryBills : []).filter(b => b.id !== billId)
       }));
       setShowAuditBillId(null);
     }
@@ -1020,36 +1036,49 @@ const App: React.FC = () => {
           {grocerySubTab === 'bills' && (
             <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-300">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {data.groceryBills.length === 0 ? (
+                {(!data.groceryBills || data.groceryBills.length === 0) ? (
                   <div className="col-span-full py-20 text-center bg-white rounded-3xl border-2 border-dashed border-slate-200">
                     <div className="text-5xl mb-4 opacity-30">📂</div>
                     <p className="text-slate-400 font-black uppercase tracking-widest">No bills archived yet</p>
                   </div>
                 ) : (
                   data.groceryBills.map(bill => (
-                    <div key={bill.id} className="bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden group hover:shadow-xl transition-shadow">
-                      <div className="relative h-40 bg-slate-100">
+                    <div key={bill.id} className="bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden group hover:shadow-xl transition-shadow flex flex-col">
+                      <div className="relative h-48 bg-slate-100 border-b border-slate-100">
                           {bill.imageUrl ? (
-                            <img src={bill.imageUrl} className="w-full h-full object-cover opacity-60 grayscale group-hover:grayscale-0 transition-all duration-500" />
+                            <img src={bill.imageUrl} className="w-full h-full object-cover" loading="lazy" />
                           ) : (
-                            <div className="flex items-center justify-center h-full text-slate-300 font-bold">No Image</div>
+                            <div className="flex items-center justify-center h-full text-slate-300 font-bold bg-slate-50">
+                                <span className="text-4xl">📄</span>
+                            </div>
                           )}
-                          <div className="absolute inset-0 p-4 flex flex-col justify-end bg-gradient-to-t from-black/60 to-transparent">
-                            <h4 className="text-white font-black text-lg">{bill.shopName}</h4>
+                          <div className="absolute inset-0 bg-gradient-to-t from-slate-900/80 via-transparent to-transparent flex flex-col justify-end p-4">
+                            <h4 className="text-white font-black text-xl leading-tight shadow-black drop-shadow-md">{bill.shopName}</h4>
                             <p className="text-white/80 text-xs font-bold uppercase tracking-widest">{bill.date}</p>
                           </div>
                       </div>
-                      <div className="p-5 flex justify-between items-center bg-white">
+                      <div className="p-5 flex flex-col gap-4 flex-1 justify-between">
                           <div>
-                            <p className="text-[9px] text-slate-400 uppercase font-black tracking-widest mb-1">Total Bill</p>
-                            <p className="text-xl font-black text-indigo-700">Rs. {Number(bill.totalAmount).toLocaleString()}</p>
+                            <p className="text-[10px] text-slate-400 uppercase font-black tracking-widest mb-1">Total Bill</p>
+                            <p className="text-2xl font-black text-indigo-700">Rs. {Number(bill.totalAmount).toLocaleString()}</p>
+                            <p className="text-xs font-semibold text-slate-500 mt-2">{bill.items.length} items</p>
                           </div>
-                          <button 
-                            onClick={() => setShowAuditBillId(bill.id)}
-                            className="bg-slate-50 hover:bg-slate-100 text-slate-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-slate-200 transition-colors"
-                          >
-                            Edit / Audit
-                          </button>
+
+                          <div className="flex gap-2 mt-auto">
+                            <button 
+                              onClick={() => setShowAuditBillId(bill.id)}
+                              className="flex-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 px-4 py-3 rounded-xl text-xs font-black uppercase tracking-widest border border-slate-200 transition-colors"
+                            >
+                              View / Edit
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteBill(bill.id)}
+                              className="bg-red-50 hover:bg-red-100 text-red-600 px-4 py-3 rounded-xl border border-red-100 transition-colors"
+                              title="Delete Bill"
+                            >
+                              🗑️
+                            </button>
+                          </div>
                       </div>
                     </div>
                   ))
