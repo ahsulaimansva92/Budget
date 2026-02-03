@@ -830,6 +830,7 @@ const App: React.FC = () => {
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">Recurring Expenses</h2>
           </div>
           <div className="grid grid-cols-1 gap-12">
+            {/* Salary Expenses Section */}
             <div className="space-y-4">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 pb-3 border-indigo-500">
                 <div>
@@ -891,6 +892,71 @@ const App: React.FC = () => {
                   </tbody>
                 </table>
                 <button onClick={() => handleAddExpense('Salary')} className="w-full py-3.5 text-xs font-black text-indigo-600 bg-indigo-50/50 hover:bg-indigo-100 transition-all border-t border-indigo-100">+ ADD SALARY EXPENSE</button>
+              </div>
+            </div>
+
+            {/* Rent Expenses Section */}
+            <div className="space-y-4">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 pb-3 border-emerald-500">
+                <div>
+                  <h3 className="text-xl font-black text-emerald-800">2. Expenses via Rent</h3>
+                  <p className="text-sm text-slate-500 font-medium">Secondary income allocations</p>
+                </div>
+                <div className="text-right mt-3 md:mt-0 bg-emerald-50 px-4 py-2 rounded-xl border border-emerald-100 flex flex-col gap-1 shadow-sm">
+                  <div>
+                    <span className="text-[9px] text-emerald-600 font-bold uppercase tracking-wider block">Total Rent Income</span>
+                    <span className="text-sm font-bold text-slate-700">Rs. {totals.rentIncome.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-emerald-600">
+                    <tr>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest w-16 text-center">Cash?</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest w-1/4">Category</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest">Description</th>
+                      <th className="px-6 py-3 text-[10px] font-black text-white uppercase tracking-widest w-1/4">Amount (Rs.)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.expenses.filter(e => e.sourceType === 'Rent').map(item => (
+                      <tr key={item.id} className="hover:bg-emerald-50/30 transition-colors">
+                        <td className="px-6 py-2 text-center">
+                          <input 
+                            type="checkbox" 
+                            checked={item.isCashHandled || false}
+                            onChange={(e) => handleUpdateExpense(item.id, 'isCashHandled', e.target.checked)}
+                            className="w-4 h-4 accent-emerald-600 cursor-pointer"
+                          />
+                        </td>
+                        <td className="px-6 py-2">
+                          <input
+                            value={item.category}
+                            onChange={(e) => handleUpdateExpense(item.id, 'category', e.target.value)}
+                            className="bg-transparent border-none focus:ring-0 w-full text-slate-500 text-[11px] font-bold italic tracking-tight"
+                          />
+                        </td>
+                        <td className="px-6 py-2">
+                          <input
+                            value={item.name}
+                            onChange={(e) => handleUpdateExpense(item.id, 'name', e.target.value)}
+                            className="w-full border-none focus:ring-0 text-slate-800 font-semibold text-sm"
+                          />
+                        </td>
+                        <td className="px-6 py-2">
+                          <input
+                            type="number"
+                            value={item.amount}
+                            onChange={(e) => handleUpdateExpense(item.id, 'amount', Number(e.target.value))}
+                            className="w-full border-none focus:ring-0 text-emerald-700 font-bold text-sm"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <button onClick={() => handleAddExpense('Rent')} className="w-full py-3.5 text-xs font-black text-emerald-600 bg-emerald-50/50 hover:bg-emerald-100 transition-all border-t border-emerald-100">+ ADD RENT EXPENSE</button>
               </div>
             </div>
           </div>
@@ -1247,6 +1313,12 @@ const App: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
+                    <button 
+                      onClick={() => setShowAuditBillId(null)}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black uppercase tracking-widest px-6 py-2.5 rounded-xl transition-all shadow-md hover:shadow-lg flex items-center gap-2"
+                    >
+                      <span>💾</span> Save Bill
+                    </button>
                     <button 
                       onClick={() => handleDeleteBill(showAuditBillId)}
                       className="text-red-500 hover:text-red-700 text-xs font-black uppercase tracking-widest border border-red-200 hover:bg-red-50 px-4 py-2 rounded-xl transition-all"
