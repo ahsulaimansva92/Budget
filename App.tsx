@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   BudgetData, IncomeSource, ExpenseItem, OneTimePayment, SavingsEntry, SavingsWithdrawal, 
@@ -442,6 +443,20 @@ const App: React.FC = () => {
     setData(prev => ({ ...prev, savings: { ...prev.savings, withdrawals: prev.savings.withdrawals.filter(w => w.id !== id) } }));
   };
 
+  const handleManualAddBill = () => {
+    const newBill: GroceryBill = {
+      id: `bill-${Date.now()}`,
+      date: new Date().toISOString().split('T')[0],
+      shopName: 'Manual Entry',
+      items: [],
+      totalAmount: 0,
+      imageUrl: ''
+    };
+    setData(prev => ({ ...prev, groceryBills: [newBill, ...prev.groceryBills] }));
+    setGrocerySubTab('bills');
+    setShowAuditBillId(newBill.id);
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -871,6 +886,12 @@ const App: React.FC = () => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <h2 className="text-3xl font-black text-slate-900 tracking-tight">Grocery Tracker</h2>
             <div className="flex gap-3">
+              <button 
+                onClick={handleManualAddBill}
+                className="bg-white text-indigo-700 border-2 border-indigo-100 px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-all hover:bg-indigo-50 active:scale-95 shadow-sm"
+              >
+                <span className="text-xl">✍️</span> Manual Add
+              </button>
               <input 
                 type="file" 
                 accept="image/*" 
@@ -1212,8 +1233,15 @@ const App: React.FC = () => {
                         <h4 className="text-xs font-black text-slate-500 uppercase mb-4 tracking-widest flex items-center gap-2">
                           <span className="text-lg">🖼️</span> Original Receipt
                         </h4>
-                        <div className="rounded-3xl border-2 border-slate-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                          <img src={data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrl} className="w-full" alt="Original Receipt" />
+                        <div className="rounded-3xl border-2 border-slate-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow min-h-[200px] bg-slate-50 flex items-center justify-center">
+                          {data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrl ? (
+                            <img src={data.groceryBills.find(b => b.id === showAuditBillId)?.imageUrl} className="w-full object-contain" alt="Original Receipt" />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-slate-300 p-10">
+                              <span className="text-4xl mb-2">📄</span>
+                              <span className="text-xs font-black uppercase tracking-widest">No Receipt Image</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex flex-col h-full">
